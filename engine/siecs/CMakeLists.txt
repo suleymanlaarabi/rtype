@@ -10,7 +10,6 @@ FetchContent_Declare(siecs
 FetchContent_Declare(sihttp
     URL https://github.com/suleymanlaarabi/sihttp/archive/refs/heads/main.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    PATCH_COMMAND git apply --whitespace=nowarn ${CMAKE_CURRENT_SOURCE_DIR}/sihttp_rest.patch
 )
 
 FetchContent_Declare(sicore
