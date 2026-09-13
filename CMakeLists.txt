@@ -18,13 +18,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(CTest)
 
-add_subdirectory(engine/flecs)
-add_subdirectory(engine/raylib)
-add_subdirectory(engine/box2d)
+add_subdirectory(engine/siecs)
 add_subdirectory(engine/core)
+add_subdirectory(engine/spatial)
+add_subdirectory(engine/rendering)
+add_subdirectory(engine/raylib)
 add_subdirectory(games/rtype)
-
-# Plus tard :
-# add_subdirectory(engine/renderer)
-# add_subdirectory(engine/audio)
-# add_subdirectory(games/game3d)

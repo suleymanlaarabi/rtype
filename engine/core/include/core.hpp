@@ -1,28 +1,10 @@
 #pragma once
-#include <flecs.h>
-#include <string>
-
-struct engine_module {
-    explicit engine_module(flecs::world &);
-};
+#include <siecs.h>
 
 namespace engine {
 
-using module = engine_module;
-
-struct WindowConfig {
-    int width{ 800 };
-    int height{ 600 };
-    std::string title{ "R-Type" };
-};
-
-struct Circle {
-    float radius = 0;
-};
-
-struct Rectangle {
-    float width;
-    float height;
+struct core {
+    static void import();
 };
 
 struct Timer {

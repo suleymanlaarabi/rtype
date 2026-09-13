@@ -3,7 +3,10 @@ SHELL := /bin/bash
 BUILD_TYPE ?= Debug
 JOBS ?= $(shell nproc 2>/dev/null || echo 4)
 
-.PHONY: all configure build debug release run test format lint clean re help
+CLIENT_BINARY := build/games/rtype/client/rtype_client
+SERVER_BINARY := build/games/rtype/server/rtype_server
+
+.PHONY: all configure build debug release run run-server test format lint clean re help
 
 all: debug
 
@@ -23,7 +26,10 @@ test: build
 	ctest --test-dir build --output-on-failure
 
 run: build
-	./build/games/rtype/rtype
+	./$(CLIENT_BINARY)
+
+run-server: build
+	./$(SERVER_BINARY)
 
 format:
 	find engine games -type f \( -name '*.c' -o -name '*.h' -o -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format -i
@@ -38,4 +44,4 @@ clean:
 re: clean all
 
 help:
-	@echo "make [debug|release|run|test|format|lint|clean|re]"
+	@echo "make [debug|release|run|run-server|test|format|lint|clean|re|help]"
