@@ -9,15 +9,11 @@ struct Player {};
 struct Gun {};
 
 struct Speed {
-    float value;
+    reflected(float value;)
 };
 
 struct MoveInput {
-    KeyboardKey left;
-    KeyboardKey right;
-    KeyboardKey up;
-    KeyboardKey down;
-    float speed;
+    reflected(int left; int right; int up; int down; float speed;)
 };
 
 struct gameplay {

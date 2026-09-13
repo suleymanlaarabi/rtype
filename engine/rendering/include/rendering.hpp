@@ -1,23 +1,19 @@
 #pragma once
-#include <cstdint>
 #include <siecs.h>
+#include <stdint.h>
 
 namespace engine {
 
 struct Color {
-    std::uint8_t r;
-    std::uint8_t g;
-    std::uint8_t b;
-    std::uint8_t a;
+    reflected(uint8_t r; uint8_t g; uint8_t b; uint8_t a;)
 };
 
 struct Circle {
-    float radius;
+    reflected(float radius;)
 };
 
 struct Rectangle {
-    float width;
-    float height;
+    reflected(float width; float height;)
 };
 
 struct rendering {

@@ -14,8 +14,7 @@ namespace {
 } // namespace
 
 void raylib::import() {
-    ecs::component<WindowConfig>();
-    ecs::entity::create<WindowConfig>().set(
+    ecs::set_resource(
         WindowConfig{
             .width = 800,
             .height = 600,
@@ -23,10 +22,10 @@ void raylib::import() {
         }
     );
 
-    const auto &config = ecs::entity::create<WindowConfig>().get<WindowConfig>();
+    const auto &config = ecs::resource<const WindowConfig>();
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_ALWAYS_RUN | FLAG_WINDOW_HIGHDPI);
 
-    InitWindow(config.width, config.height, config.title.c_str());
+    InitWindow(config.width, config.height, config.title);
     SetTargetFPS(240);
 
     ecs::system().phase(EcsPreUpdate).immediate().each([] {
