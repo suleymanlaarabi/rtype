@@ -32,17 +32,20 @@ void gameplay::import() {
             }
         });
 
+    auto bullet = ecs::entity::create()
+                      .set(engine::Velocity{ 1200, 0 })
+                      .set(engine::Rectangle{ 20, 20 })
+                      .set(engine::Color{ 0, 255, 0, 255 })
+                      .set(engine::DespawnIn::from_seconds(4));
+
     ecs::system("SpawnProjectile")
         .require<Gun>()
         .phase(EcsOnUpdate)
-        .each([](const engine::Position &position) {
+        .each([bullet](const engine::Position &position) {
             if (IsKeyDown(KEY_SPACE)) {
-                ecs::entity::create()
-                    .set(engine::Position{ position.x + 100, position.y + 50 })
-                    .set(engine::Velocity{ 1200, 0 })
-                    .set(engine::Rectangle{ 20, 20 })
-                    .set(engine::Color{ 0, 255, 0, 255 })
-                    .set(engine::DespawnIn::from_seconds(4));
+                ecs::entity::instantiate(bullet).set(
+                    engine::Position{ position.x + 100, position.y + 50 }
+                );
             }
         });
 }

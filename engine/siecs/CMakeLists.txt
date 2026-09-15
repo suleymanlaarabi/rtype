@@ -2,30 +2,36 @@ include(FetchContent)
 
 find_package(Threads REQUIRED)
 
-FetchContent_Declare(siecs
-    URL https://github.com/suleymanlaarabi/siecs/archive/refs/heads/main.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
+set(SIECS_LOCAL_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../")
 
-FetchContent_Declare(sihttp
-    URL https://github.com/suleymanlaarabi/sihttp/archive/refs/heads/main.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-
-FetchContent_Declare(sicore
-    URL https://github.com/suleymanlaarabi/sicore/archive/refs/heads/main.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-
-FetchContent_Declare(sireflect
-    URL https://github.com/suleymanlaarabi/sireflect/archive/refs/heads/main.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-
-FetchContent_Declare(sijson
-    URL https://github.com/suleymanlaarabi/sijson/archive/refs/heads/main.tar.gz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
+if(EXISTS "${SIECS_LOCAL_DEPS_DIR}/siecs/project.json")
+    FetchContent_Declare(siecs SOURCE_DIR "${SIECS_LOCAL_DEPS_DIR}/siecs")
+    FetchContent_Declare(sihttp SOURCE_DIR "${SIECS_LOCAL_DEPS_DIR}/sihttp")
+    FetchContent_Declare(sicore SOURCE_DIR "${SIECS_LOCAL_DEPS_DIR}/sicore")
+    FetchContent_Declare(sireflect SOURCE_DIR "${SIECS_LOCAL_DEPS_DIR}/sireflect")
+    FetchContent_Declare(sijson SOURCE_DIR "${SIECS_LOCAL_DEPS_DIR}/sijson")
+else()
+    FetchContent_Declare(siecs
+        URL https://github.com/suleymanlaarabi/siecs/archive/refs/heads/main.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_Declare(sihttp
+        URL https://github.com/suleymanlaarabi/sihttp/archive/refs/heads/main.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_Declare(sicore
+        URL https://github.com/suleymanlaarabi/sicore/archive/refs/heads/main.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_Declare(sireflect
+        URL https://github.com/suleymanlaarabi/sireflect/archive/refs/heads/main.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_Declare(sijson
+        URL https://github.com/suleymanlaarabi/sijson/archive/refs/heads/main.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+endif()
 
 FetchContent_MakeAvailable(siecs)
 FetchContent_MakeAvailable(sihttp)
@@ -40,6 +46,7 @@ add_library(engine_siecs STATIC
     ${siecs_SOURCE_DIR}/addons/rest/src/rest_reflect.c
     ${siecs_SOURCE_DIR}/addons/rest/src/rest_relations.c
     ${siecs_SOURCE_DIR}/addons/rest/src/rest_scene.c
+    ${siecs_SOURCE_DIR}/addons/rest/src/rest_modules.c
     ${siecs_SOURCE_DIR}/addons/rest/src/rest_schema.c
     ${sihttp_SOURCE_DIR}/src/siformat.c
     ${sihttp_SOURCE_DIR}/src/sihttp.c

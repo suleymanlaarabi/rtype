@@ -15,3 +15,8 @@ target_link_libraries(rtype_client
         engine::rendering
         engine::raylib
 )
+
+if(UNIX AND NOT APPLE)
+    # Export SIECS symbols for runtime-loaded C/C++ modules.
+    target_link_options(rtype_client PRIVATE -Wl,--export-dynamic)
+endif()

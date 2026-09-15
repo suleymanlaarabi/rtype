@@ -6,7 +6,7 @@ JOBS ?= $(shell nproc 2>/dev/null || echo 4)
 CLIENT_BINARY := build/games/rtype/client/rtype_client
 SERVER_BINARY := build/games/rtype/server/rtype_server
 
-.PHONY: all configure build debug release run run-server test format lint clean re help
+.PHONY: all configure compile build debug release run run-server test format lint clean re help
 
 all: debug
 
@@ -15,6 +15,8 @@ configure:
 
 build: configure
 	cmake --build build --parallel $(JOBS)
+
+compile: build
 
 debug:
 	$(MAKE) build BUILD_TYPE=Debug
