@@ -14,6 +14,7 @@ target_link_libraries(rtype_client
         engine::spatial
         engine::rendering
         engine::raylib
+        engine::network
 )
 
 if(UNIX AND NOT APPLE)

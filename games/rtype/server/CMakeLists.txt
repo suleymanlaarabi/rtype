@@ -5,6 +5,7 @@ add_executable(rtype_server
 target_link_libraries(rtype_server
     PRIVATE
         engine::siecs
+        engine::network
 )
 
 if(UNIX AND NOT APPLE)

@@ -1,8 +1,10 @@
+#include <network.hpp>
 #include <siecs.h>
 
 int main() {
     ecs::init();
-    ecs::progress();
-    ecs::fini();
-    return 0;
+
+    ecs::import<net>(net::Config{ .port = 7777 });
+
+    ecs::run();
 }
