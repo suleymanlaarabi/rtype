@@ -30,13 +30,7 @@ struct WindowConfig {
 };
 
 struct Camera {
-    float x;
-    float y;
-    float z;
-    float target_x;
-    float target_y;
-    float target_z;
-    float fov;
+    reflected(float fov;);
 };
 
 struct Sky {

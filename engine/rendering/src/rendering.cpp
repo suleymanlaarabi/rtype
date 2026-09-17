@@ -6,6 +6,7 @@
 #include <siecs_spatial.h>
 
 #include <array>
+#include <cmath>
 #include <numbers>
 
 namespace engine {
@@ -13,18 +14,6 @@ namespace engine {
 namespace {
 
 sigpu_color_t to_sigpu(Color color) { return { color.r, color.g, color.b, color.a }; }
-
-void set_camera(const Camera &camera) {
-    sigpu_camera(
-        camera.x,
-        camera.y,
-        camera.z,
-        camera.target_x,
-        camera.target_y,
-        camera.target_z,
-        camera.fov
-    );
-}
 
 void set_sky(const Sky &sky) { sigpu_sky(to_sigpu(sky.color)); }
 
@@ -58,6 +47,7 @@ void rendering::import() {
     ecs::import<sispatial>();
     ecs::component<Color>();
     ecs::component<Cuboid>();
+    ecs::component<Camera>();
 
     ecs::set_resource(
         WindowConfig{
@@ -69,18 +59,6 @@ void rendering::import() {
     const auto &window = ecs::resource<const WindowConfig>();
     sigpu_init(window.title, window.width, window.height);
 
-    ecs::resource_handle<Camera>({ .on_set = set_camera })
-        .set(
-            Camera{
-                .x = 6.75f,
-                .y = 6.75f,
-                .z = -25.0f,
-                .target_x = 6.75f,
-                .target_y = 6.75f,
-                .target_z = 0.0f,
-                .fov = 40.0f,
-            }
-        );
     ecs::resource_handle<Sky>({ .on_set = set_sky }).set(Sky{ Color{ 13, 13, 20, 255 } });
     ecs::resource_handle<Sun>({ .on_set = set_sun })
         .set(
@@ -117,6 +95,33 @@ void rendering::import() {
             for (std::size_t index = 0; index < scancodes.size(); ++index) {
                 keyboard->keys[index] = state[scancodes[index]];
             }
+        });
+
+    ecs::system("UpdateCamera")
+        .phase(EcsPreRender)
+        .immediate()
+        .each([](const GlobalPosition3d &position,
+                 const GlobalRotation3d &rotation,
+                 const Camera &camera) {
+            const float sin_x = std::sin(rotation.x);
+            const float cos_x = std::cos(rotation.x);
+            const float sin_y = std::sin(rotation.y);
+            const float cos_y = std::cos(rotation.y);
+            const float sin_z = std::sin(rotation.z);
+            const float cos_z = std::cos(rotation.z);
+            const float forward_x = cos_z * sin_y * cos_x + sin_z * sin_x;
+            const float forward_y = sin_z * sin_y * cos_x - cos_z * sin_x;
+            const float forward_z = cos_y * cos_x;
+
+            sigpu_camera(
+                position.x,
+                position.y,
+                position.z,
+                position.x + forward_x,
+                position.y + forward_y,
+                position.z + forward_z,
+                camera.fov
+            );
         });
 
     ecs::system("RenderCuboids")
