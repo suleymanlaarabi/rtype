@@ -42,6 +42,7 @@ void sigpu_fog(sigpu_color_t color, float start, float end);
 void sigpu_shadows(bool enabled);
 void sigpu_shadow_distance(float distance);
 void sigpu_msaa(int samples);
+void sigpu_bloom(bool enabled, float threshold, float intensity);
 
 void sigpu_cube(
     float x,
@@ -50,7 +51,8 @@ void sigpu_cube(
     float width,
     float height,
     float depth,
-    sigpu_color_t color
+    sigpu_color_t color,
+    float bloom
 );
 
 void sigpu_cube_rotated(
@@ -63,7 +65,8 @@ void sigpu_cube_rotated(
     float rx,
     float ry,
     float rz,
-    sigpu_color_t color
+    sigpu_color_t color,
+    float bloom
 );
 
 #ifdef __cplusplus

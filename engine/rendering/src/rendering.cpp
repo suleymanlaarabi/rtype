@@ -32,6 +32,10 @@ void set_shadows(const Shadows &shadows) {
 
 void set_multisampling(const Multisampling &multisampling) { sigpu_msaa(multisampling.samples); }
 
+void set_bloom(const BloomSettings &bloom) {
+    sigpu_bloom(bloom.enabled, bloom.threshold, bloom.intensity);
+}
+
 } // namespace
 
 Color Color::green() { return Color{ 0, 255, 0, 255 }; }
@@ -47,6 +51,7 @@ void rendering::import() {
     ecs::import<sispatial>();
     ecs::component<Color>();
     ecs::component<Cuboid>();
+    ecs::component<Bloom>();
     ecs::component<Camera>();
 
     ecs::set_resource(
@@ -76,6 +81,8 @@ void rendering::import() {
         .set(Fog{ Color{ 13, 13, 20, 255 }, 0.0f, 0.0f });
     ecs::resource_handle<Shadows>({ .on_set = set_shadows }).set(Shadows{ false, 35.0f });
     ecs::resource_handle<Multisampling>({ .on_set = set_multisampling }).set(Multisampling{ 4 });
+    ecs::resource_handle<BloomSettings>({ .on_set = set_bloom })
+        .set(BloomSettings{ true, 0.0f, 1.0f });
     ecs::set_resource(Keyboard{});
 
     ecs::system("BeginRendering")
@@ -131,10 +138,12 @@ void rendering::import() {
                  const GlobalRotation3d &rotation,
                  const GlobalScale3d &scale,
                  const Cuboid &cuboid,
-                 const Color &color) {
+                 const Color &color,
+                 ecs::optional<const Bloom> bloom) {
             const float width = cuboid.width * scale.x;
             const float height = cuboid.height * scale.y;
             const float depth = cuboid.depth * scale.z;
+            const float bloom_intensity = bloom ? bloom->intensity : 0.0f;
             if (rotation.x == 0.0f && rotation.y == 0.0f && rotation.z == 0.0f) {
                 sigpu_cube(
                     position.x,
@@ -143,7 +152,8 @@ void rendering::import() {
                     width,
                     height,
                     depth,
-                    to_sigpu(color)
+                    to_sigpu(color),
+                    bloom_intensity
                 );
                 return;
             }
@@ -159,7 +169,8 @@ void rendering::import() {
                 rotation.x * degrees,
                 rotation.y * degrees,
                 rotation.z * degrees,
-                to_sigpu(color)
+                to_sigpu(color),
+                bloom_intensity
             );
         });
 

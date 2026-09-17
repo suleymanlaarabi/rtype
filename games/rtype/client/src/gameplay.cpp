@@ -9,7 +9,7 @@ namespace rtype {
 void gameplay::import() {
     ecs::component<Player>();
     ecs::component<Gun>();
-    ecs::component<MoveInput>();
+    ecs::component<MoveInput>().with<Velocity3d>();
 
     ecs::system("IntegrateVelocity")
         .each(
@@ -19,8 +19,7 @@ void gameplay::import() {
             }
         );
 
-    ecs::system("MovePlayer")
-        .require<Player>()
+    ecs::system("Move")
         .phase(EcsPreUpdate)
         .each([](const MoveInput &input,
                  Velocity3d &velocity,
@@ -47,6 +46,7 @@ void gameplay::import() {
                           Velocity3d(12.0f, 0.0f),
                           engine::Cuboid::splat(0.2f),
                           engine::Color::green(),
+                          engine::Bloom{ 2.0f },
                           engine::DespawnIn::seconds(1)
                       )
                       .abstract();

@@ -23,6 +23,10 @@ struct Cuboid {
     static Cuboid splat(float value);
 };
 
+struct Bloom {
+    reflected(float intensity;);
+};
+
 struct WindowConfig {
     int width;
     int height;
@@ -63,6 +67,12 @@ struct Shadows {
 
 struct Multisampling {
     int samples;
+};
+
+struct BloomSettings {
+    bool enabled;
+    float threshold;
+    float intensity;
 };
 
 enum class Key : uint8_t {

@@ -10,6 +10,7 @@
 #define SIGPU_AXIS_CAPACITY 131072
 #define SIGPU_ROTATED_CAPACITY 16384
 #define SIGPU_SHADOW_SIZE 2048
+#define SIGPU_HDR_FORMAT SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT
 #define SIGPU_PI 3.14159265358979323846f
 #define SIGPU_SHADER(name) SIGPU_SHADER_DIR "/" name
 
@@ -44,6 +45,7 @@ typedef struct {
     uint8_t g;
     uint8_t b;
     uint8_t a;
+    float bloom;
 } axisinstance_t;
 
 typedef struct {
@@ -61,6 +63,7 @@ typedef struct {
     uint8_t g;
     uint8_t b;
     uint8_t a;
+    float bloom;
 } sirotated_instance_t;
 
 typedef struct {
@@ -98,6 +101,9 @@ static SDL_GPUGraphicsPipeline *g_axis_pipeline;
 static SDL_GPUGraphicsPipeline *g_rotated_pipeline;
 static SDL_GPUGraphicsPipeline *g_axis_shadow_pipeline;
 static SDL_GPUGraphicsPipeline *g_rotated_shadow_pipeline;
+static SDL_GPUGraphicsPipeline *g_bloom_down_pipeline;
+static SDL_GPUGraphicsPipeline *g_bloom_blur_pipeline;
+static SDL_GPUGraphicsPipeline *g_bloom_composite_pipeline;
 
 static SDL_GPUBuffer *g_vertex_buffer;
 static SDL_GPUBuffer *g_index_buffer;
@@ -108,8 +114,16 @@ static SDL_GPUTransferBuffer *g_rotated_transfer;
 
 static SDL_GPUTexture *g_depth_texture;
 static SDL_GPUTexture *g_msaa_texture;
+static SDL_GPUTexture *g_bloom_msaa_texture;
+static SDL_GPUTexture *g_scene_texture;
+static SDL_GPUTexture *g_bloom_texture;
+static SDL_GPUTexture *g_bloom_half;
+static SDL_GPUTexture *g_bloom_half_scratch;
+static SDL_GPUTexture *g_bloom_quarter;
+static SDL_GPUTexture *g_bloom_quarter_scratch;
 static SDL_GPUTexture *g_shadow_texture;
 static SDL_GPUSampler *g_shadow_sampler;
+static SDL_GPUSampler *g_bloom_sampler;
 
 static axisinstance_t *g_axis_instances;
 static sirotated_instance_t *g_rotated_instances;
@@ -122,6 +136,10 @@ static Uint32 g_frame_width;
 static Uint32 g_frame_height;
 static Uint32 g_target_width;
 static Uint32 g_target_height;
+static Uint32 g_bloom_half_width;
+static Uint32 g_bloom_half_height;
+static Uint32 g_bloom_quarter_width;
+static Uint32 g_bloom_quarter_height;
 static SDL_GPUSampleCount g_sample_count;
 
 static camera_t g_camera;
@@ -136,8 +154,12 @@ static float g_ambient_intensity;
 static float g_fog_start;
 static float g_fog_end;
 static float g_shadow_distance;
+static float g_bloom_threshold;
+static float g_bloom_intensity;
 static bool g_fog_enabled;
 static bool g_shadows_enabled;
+static bool g_bloom_enabled;
+static bool g_any_bloom;
 
 static uint8_t g_linear_lut[256];
 static mat4_t g_view;
@@ -328,7 +350,7 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
         1
     );
     SDL_GPUShader *fragment_shader = load_shader(
-        g_linear_swapchain ? SIGPU_SHADER("cube.frag.spv") : SIGPU_SHADER("cube_sdr.frag.spv"),
+        SIGPU_SHADER("cube.frag.spv"),
         SDL_GPU_SHADERSTAGE_FRAGMENT,
         1,
         1
@@ -345,7 +367,7 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
             .input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE,
         },
     };
-    SDL_GPUVertexAttribute attributes[6] = {
+    SDL_GPUVertexAttribute attributes[7] = {
         {
             .location = 0,
             .buffer_slot = 0,
@@ -380,11 +402,22 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
         {
             .location = 5,
             .buffer_slot = 1,
-            .format = SDL_GPU_VERTEXELEMENTFORMAT_SHORT4_NORM,
-            .offset = offsetof(sirotated_instance_t, qx),
+            .format = rotated ? SDL_GPU_VERTEXELEMENTFORMAT_SHORT4_NORM
+                              : SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,
+            .offset =
+                rotated ? offsetof(sirotated_instance_t, qx) : offsetof(axisinstance_t, bloom),
+        },
+        {
+            .location = 6,
+            .buffer_slot = 1,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,
+            .offset = offsetof(sirotated_instance_t, bloom),
         },
     };
-    SDL_GPUColorTargetDescription color_target = { .format = g_swapchain_format };
+    SDL_GPUColorTargetDescription color_targets[2] = {
+        { .format = SIGPU_HDR_FORMAT },
+        { .format = SIGPU_HDR_FORMAT },
+    };
     SDL_GPUGraphicsPipelineCreateInfo info = {
         .vertex_shader = vertex_shader,
         .fragment_shader = fragment_shader,
@@ -392,7 +425,7 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
             .vertex_buffer_descriptions = buffers,
             .num_vertex_buffers = 2,
             .vertex_attributes = attributes,
-            .num_vertex_attributes = rotated ? 6 : 5,
+            .num_vertex_attributes = rotated ? 7 : 6,
         },
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = {
@@ -410,8 +443,8 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
             .enable_depth_write = true,
         },
         .target_info = {
-            .color_target_descriptions = &color_target,
-            .num_color_targets = 1,
+            .color_target_descriptions = color_targets,
+            .num_color_targets = 2,
             .depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM,
             .has_depth_stencil_target = true,
         },
@@ -549,6 +582,62 @@ static void create_shadow_resources(void) {
     g_rotated_shadow_pipeline = create_shadow_pipeline(true);
 }
 
+static SDL_GPUGraphicsPipeline *create_fullscreen_pipeline(
+    const char *fragment_path,
+    Uint32 sampler_count,
+    SDL_GPUTextureFormat format
+) {
+    SDL_GPUShader *vertex_shader =
+        load_shader(SIGPU_SHADER("fullscreen.vert.spv"), SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
+    SDL_GPUShader *fragment_shader =
+        load_shader(fragment_path, SDL_GPU_SHADERSTAGE_FRAGMENT, sampler_count, 1);
+    SDL_GPUColorTargetDescription color_target = { .format = format };
+    SDL_GPUGraphicsPipelineCreateInfo info = {
+        .vertex_shader = vertex_shader,
+        .fragment_shader = fragment_shader,
+        .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .rasterizer_state = {
+            .fill_mode = SDL_GPU_FILLMODE_FILL,
+            .cull_mode = SDL_GPU_CULLMODE_NONE,
+            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+        },
+        .target_info = {
+            .color_target_descriptions = &color_target,
+            .num_color_targets = 1,
+        },
+    };
+    SDL_GPUGraphicsPipeline *pipeline = SDL_CreateGPUGraphicsPipeline(g_device, &info);
+    SDL_ReleaseGPUShader(g_device, vertex_shader);
+    SDL_ReleaseGPUShader(g_device, fragment_shader);
+    return pipeline;
+}
+
+static void create_bloom_resources(void) {
+    g_bloom_sampler = SDL_CreateGPUSampler(
+        g_device,
+        &(SDL_GPUSamplerCreateInfo){
+            .min_filter = SDL_GPU_FILTER_LINEAR,
+            .mag_filter = SDL_GPU_FILTER_LINEAR,
+            .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+            .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+            .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+            .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+        }
+    );
+    g_bloom_down_pipeline = create_fullscreen_pipeline(
+        SIGPU_SHADER("bloom_down.frag.spv"),
+        1,
+        SIGPU_HDR_FORMAT
+    );
+    g_bloom_blur_pipeline =
+        create_fullscreen_pipeline(SIGPU_SHADER("bloom_blur.frag.spv"), 1, SIGPU_HDR_FORMAT);
+    g_bloom_composite_pipeline = create_fullscreen_pipeline(
+        SIGPU_SHADER("bloom_composite.frag.spv"),
+        3,
+        g_swapchain_format
+    );
+}
+
 static void create_cube_mesh(void) {
     Uint32 vertex_size = sizeof(cube_vertices);
     Uint32 index_size = sizeof(cube_indices);
@@ -648,23 +737,51 @@ static void resize_rotated_instances(Uint32 capacity) {
     g_rotated_capacity = capacity;
 }
 
-static void release_frame_targets(void) {
-    if (g_depth_texture) {
-        SDL_ReleaseGPUTexture(g_device, g_depth_texture);
-        g_depth_texture = NULL;
-    }
+static SDL_GPUTexture *create_hdr_texture(
+    Uint32 width,
+    Uint32 height,
+    SDL_GPUTextureUsageFlags usage,
+    SDL_GPUSampleCount sample_count
+) {
+    return SDL_CreateGPUTexture(
+        g_device,
+        &(SDL_GPUTextureCreateInfo){
+            .type = SDL_GPU_TEXTURETYPE_2D,
+            .format = SIGPU_HDR_FORMAT,
+            .usage = usage,
+            .width = width,
+            .height = height,
+            .layer_count_or_depth = 1,
+            .num_levels = 1,
+            .sample_count = sample_count,
+        }
+    );
+}
 
-    if (g_msaa_texture) {
-        SDL_ReleaseGPUTexture(g_device, g_msaa_texture);
-        g_msaa_texture = NULL;
+static void release_texture(SDL_GPUTexture **texture) {
+    if (*texture) {
+        SDL_ReleaseGPUTexture(g_device, *texture);
+        *texture = NULL;
     }
+}
+
+static void release_frame_targets(void) {
+    release_texture(&g_depth_texture);
+    release_texture(&g_msaa_texture);
+    release_texture(&g_bloom_msaa_texture);
+    release_texture(&g_scene_texture);
+    release_texture(&g_bloom_texture);
+    release_texture(&g_bloom_half);
+    release_texture(&g_bloom_half_scratch);
+    release_texture(&g_bloom_quarter);
+    release_texture(&g_bloom_quarter_scratch);
 
     g_target_width = 0;
     g_target_height = 0;
 }
 
 static void ensure_frame_targets(void) {
-    if (g_depth_texture && g_target_width == g_frame_width && g_target_height == g_frame_height) {
+    if (g_scene_texture && g_target_width == g_frame_width && g_target_height == g_frame_height) {
         return;
     }
 
@@ -682,22 +799,62 @@ static void ensure_frame_targets(void) {
             .sample_count = g_sample_count,
         }
     );
+    g_scene_texture = create_hdr_texture(
+        g_frame_width,
+        g_frame_height,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        SDL_GPU_SAMPLECOUNT_1
+    );
 
     if (g_sample_count != SDL_GPU_SAMPLECOUNT_1) {
-        g_msaa_texture = SDL_CreateGPUTexture(
-            g_device,
-            &(SDL_GPUTextureCreateInfo){
-                .type = SDL_GPU_TEXTURETYPE_2D,
-                .format = g_swapchain_format,
-                .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
-                .width = g_frame_width,
-                .height = g_frame_height,
-                .layer_count_or_depth = 1,
-                .num_levels = 1,
-                .sample_count = g_sample_count,
-            }
+        g_msaa_texture = create_hdr_texture(
+            g_frame_width,
+            g_frame_height,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+            g_sample_count
+        );
+        g_bloom_msaa_texture = create_hdr_texture(
+            g_frame_width,
+            g_frame_height,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+            g_sample_count
         );
     }
+
+    g_bloom_texture = create_hdr_texture(
+        g_frame_width,
+        g_frame_height,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        SDL_GPU_SAMPLECOUNT_1
+    );
+    g_bloom_half_width = g_frame_width > 1 ? g_frame_width / 2 : 1;
+    g_bloom_half_height = g_frame_height > 1 ? g_frame_height / 2 : 1;
+    g_bloom_quarter_width = g_bloom_half_width > 1 ? g_bloom_half_width / 2 : 1;
+    g_bloom_quarter_height = g_bloom_half_height > 1 ? g_bloom_half_height / 2 : 1;
+    g_bloom_half = create_hdr_texture(
+        g_bloom_half_width,
+        g_bloom_half_height,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        SDL_GPU_SAMPLECOUNT_1
+    );
+    g_bloom_half_scratch = create_hdr_texture(
+        g_bloom_half_width,
+        g_bloom_half_height,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        SDL_GPU_SAMPLECOUNT_1
+    );
+    g_bloom_quarter = create_hdr_texture(
+        g_bloom_quarter_width,
+        g_bloom_quarter_height,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        SDL_GPU_SAMPLECOUNT_1
+    );
+    g_bloom_quarter_scratch = create_hdr_texture(
+        g_bloom_quarter_width,
+        g_bloom_quarter_height,
+        SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+        SDL_GPU_SAMPLECOUNT_1
+    );
 
     g_target_width = g_frame_width;
     g_target_height = g_frame_height;
@@ -974,15 +1131,24 @@ static void draw_shadow_pass(void) {
 }
 
 static void draw_main_pass(void) {
-    SDL_FColor clear_color = g_linear_swapchain ? g_sky_linear : g_sky_srgb;
-    SDL_GPUColorTargetInfo color_target = {
-        .texture = g_sample_count == SDL_GPU_SAMPLECOUNT_1 ? g_swapchain : g_msaa_texture,
-        .clear_color = clear_color,
-        .load_op = SDL_GPU_LOADOP_CLEAR,
-        .store_op = g_sample_count == SDL_GPU_SAMPLECOUNT_1 ? SDL_GPU_STOREOP_STORE
-                                                            : SDL_GPU_STOREOP_RESOLVE,
-        .resolve_texture = g_sample_count == SDL_GPU_SAMPLECOUNT_1 ? NULL : g_swapchain,
-        .cycle = g_sample_count != SDL_GPU_SAMPLECOUNT_1
+    bool msaa = g_sample_count != SDL_GPU_SAMPLECOUNT_1;
+    SDL_GPUColorTargetInfo color_targets[2] = {
+        {
+            .texture = msaa ? g_msaa_texture : g_scene_texture,
+            .clear_color = g_sky_linear,
+            .load_op = SDL_GPU_LOADOP_CLEAR,
+            .store_op = msaa ? SDL_GPU_STOREOP_RESOLVE : SDL_GPU_STOREOP_STORE,
+            .resolve_texture = msaa ? g_scene_texture : NULL,
+            .cycle = msaa,
+        },
+        {
+            .texture = msaa ? g_bloom_msaa_texture : g_bloom_texture,
+            .clear_color = { 0.0f, 0.0f, 0.0f, 0.0f },
+            .load_op = SDL_GPU_LOADOP_CLEAR,
+            .store_op = msaa ? SDL_GPU_STOREOP_RESOLVE : SDL_GPU_STOREOP_STORE,
+            .resolve_texture = msaa ? g_bloom_texture : NULL,
+            .cycle = msaa,
+        },
     };
     SDL_GPUDepthStencilTargetInfo depth_target = {
         .texture = g_depth_texture,
@@ -994,7 +1160,7 @@ static void draw_main_pass(void) {
         .cycle = true,
     };
     SDL_GPURenderPass *pass =
-        SDL_BeginGPURenderPass(g_command_buffer, &color_target, 1, &depth_target);
+        SDL_BeginGPURenderPass(g_command_buffer, color_targets, 2, &depth_target);
     transform_uniform_t transforms = {
         .view_projection = g_view_projection,
         .light_view_projection = g_light_view_projection,
@@ -1040,6 +1206,172 @@ static void draw_main_pass(void) {
     SDL_EndGPURenderPass(pass);
 }
 
+static void draw_fullscreen(
+    SDL_GPUGraphicsPipeline *pipeline,
+    SDL_GPUTexture *target,
+    Uint32 width,
+    Uint32 height,
+    const SDL_GPUTextureSamplerBinding *samplers,
+    Uint32 sampler_count,
+    const float *uniform,
+    Uint32 uniform_size
+) {
+    SDL_GPUColorTargetInfo color_target = {
+        .texture = target,
+        .load_op = SDL_GPU_LOADOP_DONT_CARE,
+        .store_op = SDL_GPU_STOREOP_STORE,
+        .cycle = true,
+    };
+    SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(g_command_buffer, &color_target, 1, NULL);
+    SDL_SetGPUViewport(
+        pass,
+        &(SDL_GPUViewport){
+            .w = (float)width,
+            .h = (float)height,
+            .min_depth = 0.0f,
+            .max_depth = 1.0f,
+        }
+    );
+    SDL_BindGPUGraphicsPipeline(pass, pipeline);
+    SDL_BindGPUFragmentSamplers(pass, 0, samplers, sampler_count);
+    SDL_PushGPUFragmentUniformData(g_command_buffer, 0, uniform, uniform_size);
+    SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+}
+
+static void bloom_downsample(
+    SDL_GPUTexture *source,
+    Uint32 source_width,
+    Uint32 source_height,
+    SDL_GPUTexture *target,
+    Uint32 target_width,
+    Uint32 target_height,
+    float extract
+) {
+    SDL_GPUTextureSamplerBinding binding = {
+        .texture = source,
+        .sampler = g_bloom_sampler,
+    };
+    float uniform[4] = {
+        g_bloom_threshold,
+        extract,
+        1.0f / (float)source_width,
+        1.0f / (float)source_height,
+    };
+    draw_fullscreen(
+        g_bloom_down_pipeline,
+        target,
+        target_width,
+        target_height,
+        &binding,
+        1,
+        uniform,
+        sizeof(uniform)
+    );
+}
+
+static void bloom_blur(
+    SDL_GPUTexture *source,
+    SDL_GPUTexture *scratch,
+    SDL_GPUTexture *target,
+    Uint32 width,
+    Uint32 height
+) {
+    SDL_GPUTextureSamplerBinding binding = {
+        .texture = source,
+        .sampler = g_bloom_sampler,
+    };
+    float horizontal[4] = { 1.0f / (float)width, 0.0f, 0.0f, 0.0f };
+    draw_fullscreen(
+        g_bloom_blur_pipeline,
+        scratch,
+        width,
+        height,
+        &binding,
+        1,
+        horizontal,
+        sizeof(horizontal)
+    );
+    binding.texture = scratch;
+    float vertical[4] = { 0.0f, 1.0f / (float)height, 0.0f, 0.0f };
+    draw_fullscreen(
+        g_bloom_blur_pipeline,
+        target,
+        width,
+        height,
+        &binding,
+        1,
+        vertical,
+        sizeof(vertical)
+    );
+}
+
+static void draw_bloom_passes(void) {
+    if (!g_bloom_enabled || !g_any_bloom) {
+        return;
+    }
+
+    bloom_downsample(
+        g_bloom_texture,
+        g_frame_width,
+        g_frame_height,
+        g_bloom_half_scratch,
+        g_bloom_half_width,
+        g_bloom_half_height,
+        1.0f
+    );
+    bloom_blur(
+        g_bloom_half_scratch,
+        g_bloom_half,
+        g_bloom_half_scratch,
+        g_bloom_half_width,
+        g_bloom_half_height
+    );
+    bloom_downsample(
+        g_bloom_half_scratch,
+        g_bloom_half_width,
+        g_bloom_half_height,
+        g_bloom_quarter_scratch,
+        g_bloom_quarter_width,
+        g_bloom_quarter_height,
+        0.0f
+    );
+    bloom_blur(
+        g_bloom_quarter_scratch,
+        g_bloom_quarter,
+        g_bloom_quarter_scratch,
+        g_bloom_quarter_width,
+        g_bloom_quarter_height
+    );
+}
+
+static void draw_composite_pass(void) {
+    SDL_GPUTexture *half = g_any_bloom && g_bloom_enabled ? g_bloom_half_scratch : g_bloom_texture;
+    SDL_GPUTexture *quarter = g_any_bloom && g_bloom_enabled ? g_bloom_quarter_scratch : g_bloom_texture;
+    SDL_GPUTextureSamplerBinding samplers[3] = {
+        { .texture = g_scene_texture, .sampler = g_bloom_sampler },
+        { .texture = half, .sampler = g_bloom_sampler },
+        { .texture = quarter, .sampler = g_bloom_sampler },
+    };
+    float uniform[4] = {
+        g_bloom_enabled && g_any_bloom ? g_bloom_intensity : 0.0f,
+        g_linear_swapchain ? 0.0f : 1.0f,
+        0.0f,
+        0.0f,
+    };
+    SDL_GPUColorTargetInfo color_target = {
+        .texture = g_swapchain,
+        .load_op = SDL_GPU_LOADOP_DONT_CARE,
+        .store_op = SDL_GPU_STOREOP_STORE,
+    };
+    SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(g_command_buffer, &color_target, 1, NULL);
+    SDL_BindGPUGraphicsPipeline(pass, g_bloom_composite_pipeline);
+    SDL_BindGPUFragmentSamplers(pass, 0, samplers, 3);
+    SDL_PushGPUFragmentUniformData(g_command_buffer, 0, uniform, sizeof(uniform));
+    SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+}
+
 void sigpu_init(const char *title, int width, int height) {
     for (int index = 0; index < 256; index++) {
         float srgb = index / 255.0f;
@@ -1076,6 +1408,7 @@ void sigpu_init(const char *title, int width, int height) {
     resize_rotated_instances(SIGPU_ROTATED_CAPACITY);
     create_main_pipelines();
     create_shadow_resources();
+    create_bloom_resources();
     sigpu_camera(0.0f, 2.0f, -6.0f, 0.0f, 0.0f, 0.0f, 60.0f);
     sigpu_sky(sigpu_rgb(13, 13, 20));
     sigpu_sun(-1.0f, -2.0f, 1.0f, sigpu_rgb(255, 245, 220), 1.0f);
@@ -1086,6 +1419,9 @@ void sigpu_init(const char *title, int width, int height) {
     g_fog_end = 0.0f;
     g_fog_enabled = false;
     g_shadows_enabled = false;
+    g_bloom_enabled = true;
+    g_bloom_threshold = 0.0f;
+    g_bloom_intensity = 1.0f;
     g_light_view_projection = mat4_identity();
 }
 
@@ -1133,6 +1469,12 @@ void sigpu_shadows(bool enabled) { g_shadows_enabled = enabled; }
 
 void sigpu_shadow_distance(float distance) { g_shadow_distance = distance; }
 
+void sigpu_bloom(bool enabled, float threshold, float intensity) {
+    g_bloom_enabled = enabled;
+    g_bloom_threshold = threshold;
+    g_bloom_intensity = intensity;
+}
+
 static SDL_GPUSampleCount sample_count_from_int(int samples) {
     switch (samples) {
     case 8:
@@ -1162,7 +1504,7 @@ void sigpu_msaa(int samples) {
 
     while (
         selected != SDL_GPU_SAMPLECOUNT_1 &&
-        (!SDL_GPUTextureSupportsSampleCount(g_device, g_swapchain_format, selected) ||
+        (!SDL_GPUTextureSupportsSampleCount(g_device, SIGPU_HDR_FORMAT, selected) ||
          !SDL_GPUTextureSupportsSampleCount(g_device, SDL_GPU_TEXTUREFORMAT_D16_UNORM, selected))) {
         selected = lower_sample_count(selected);
     }
@@ -1190,6 +1532,7 @@ bool sigpu_begin_frame(void) {
 
     g_axis_count = 0;
     g_rotated_count = 0;
+    g_any_bloom = false;
     g_command_buffer = SDL_AcquireGPUCommandBuffer(g_device);
     g_swapchain = NULL;
     SDL_WaitAndAcquireGPUSwapchainTexture(
@@ -1209,7 +1552,8 @@ void sigpu_cube(
     float width,
     float height,
     float depth,
-    sigpu_color_t color
+    sigpu_color_t color,
+    float bloom
 ) {
     if (g_axis_count == g_axis_capacity) {
         resize_axis_instances(g_axis_capacity * 2);
@@ -1223,6 +1567,8 @@ void sigpu_cube(
     cube->height = height;
     cube->depth = depth;
     pack_color(&cube->r, color);
+    cube->bloom = fmaxf(bloom, 0.0f);
+    g_any_bloom = g_any_bloom || cube->bloom > 0.0f;
 }
 
 void sigpu_cube_rotated(
@@ -1235,7 +1581,8 @@ void sigpu_cube_rotated(
     float rx,
     float ry,
     float rz,
-    sigpu_color_t color
+    sigpu_color_t color,
+    float bloom
 ) {
     if (g_rotated_count == g_rotated_capacity) {
         resize_rotated_instances(g_rotated_capacity * 2);
@@ -1262,6 +1609,8 @@ void sigpu_cube_rotated(
     cube->qz = (int16_t)roundf((cx * cy * sz - sx * sy * cz) * 32767.0f);
     cube->qw = (int16_t)roundf((cx * cy * cz + sx * sy * sz) * 32767.0f);
     pack_color(&cube->r, color);
+    cube->bloom = fmaxf(bloom, 0.0f);
+    g_any_bloom = g_any_bloom || cube->bloom > 0.0f;
 }
 
 void sigpu_end_frame(void) {
@@ -1288,6 +1637,8 @@ void sigpu_end_frame(void) {
     upload_instances();
     draw_shadow_pass();
     draw_main_pass();
+    draw_bloom_passes();
+    draw_composite_pass();
     SDL_SubmitGPUCommandBuffer(g_command_buffer);
     g_command_buffer = NULL;
     g_swapchain = NULL;
@@ -1299,6 +1650,9 @@ void sigpu_fini(void) {
     SDL_ReleaseGPUGraphicsPipeline(g_device, g_rotated_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_device, g_axis_shadow_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_device, g_rotated_shadow_pipeline);
+    SDL_ReleaseGPUGraphicsPipeline(g_device, g_bloom_down_pipeline);
+    SDL_ReleaseGPUGraphicsPipeline(g_device, g_bloom_blur_pipeline);
+    SDL_ReleaseGPUGraphicsPipeline(g_device, g_bloom_composite_pipeline);
     SDL_ReleaseGPUBuffer(g_device, g_vertex_buffer);
     SDL_ReleaseGPUBuffer(g_device, g_index_buffer);
     SDL_ReleaseGPUBuffer(g_device, g_axis_buffer);
@@ -1307,6 +1661,7 @@ void sigpu_fini(void) {
     SDL_ReleaseGPUTransferBuffer(g_device, g_rotated_transfer);
     SDL_ReleaseGPUTexture(g_device, g_shadow_texture);
     SDL_ReleaseGPUSampler(g_device, g_shadow_sampler);
+    SDL_ReleaseGPUSampler(g_device, g_bloom_sampler);
     release_frame_targets();
 
     if (g_window_claimed) {

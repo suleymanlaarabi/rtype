@@ -4,8 +4,10 @@ layout(location = 0) in vec3 in_world_position;
 layout(location = 1) flat in vec3 in_normal;
 layout(location = 2) flat in vec4 in_color;
 layout(location = 3) in vec4 in_light_position;
+layout(location = 4) flat in float in_bloom;
 
 layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec4 out_bloom;
 
 layout(set = 2, binding = 0) uniform sampler2DShadow shadow_map;
 
@@ -69,5 +71,8 @@ vec3 final_linear_color()
 
 void main()
 {
-    out_color = vec4(final_linear_color(), in_color.a);
+    vec3 lit = final_linear_color();
+    vec3 emissive = in_color.rgb * in_bloom;
+    out_color = vec4(lit + emissive, in_color.a);
+    out_bloom = vec4(emissive, 1.0);
 }

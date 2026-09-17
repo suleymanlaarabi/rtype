@@ -6,10 +6,13 @@ layout(location = 2) in vec3 in_position;
 layout(location = 3) in vec3 in_size;
 layout(location = 4) in vec4 in_color;
 
+layout(location = 5) in float in_bloom;
+
 layout(location = 0) out vec3 out_world_position;
 layout(location = 1) flat out vec3 out_normal;
 layout(location = 2) flat out vec4 out_color;
 layout(location = 3) out vec4 out_light_position;
+layout(location = 4) flat out float out_bloom;
 
 layout(std140, set = 1, binding = 0) uniform Transforms
 {
@@ -25,4 +28,5 @@ void main()
     out_normal = in_vertex_normal.xyz;
     out_color = in_color;
     out_light_position = transforms.light_view_projection * vec4(world_position, 1.0);
+    out_bloom = in_bloom;
 }
