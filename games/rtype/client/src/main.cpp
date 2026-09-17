@@ -18,7 +18,7 @@ int main() {
     ecs::set_resource(engine::Sky{ .color = engine::Color{ 45, 45, 42, 255 } });
 
     ecs::entity::create("rtype::camera")
-        // .add<rtype::CameraController>()
+        .add<rtype::CameraController>()
         .set(Position3d(-4.6f, 4.8f, -8.2f), Rotation3d(0.47f, 0.51f, 0.0f), engine::Camera(40.0f));
 
     // ecs::entity tree =
@@ -40,11 +40,8 @@ int main() {
     // ecs::entity::instantiate(tree).set(Position3d(4, 0, 0));
 
     ecs::entity wing = ecs::entity::create()
-                           .set(
-                               Position3d(0, 0, 0),
-                               engine::Cuboid(0.4, 0.1, 1.2),
-                               engine::Color{ 225, 225, 235, 255 }
-                           )
+                           .add<Position3d>()
+                           .set(engine::Cuboid(0.4, 0.1, 1.2), engine::Color{ 225, 225, 235, 255 })
                            .children(
                                ecs::entity::create().set(
                                    Position3d(0, 0, 0.5),
@@ -60,46 +57,29 @@ int main() {
                                    Position3d(0, 0, 0.55),
                                    engine::Cuboid(0.2, 0.05, 0.2),
                                    engine::Color::red(),
-                                   engine::Bloom{ 1 }
+                                   engine::Bloom(1)
+                               ),
+                               ecs::entity::create().add<Position3d>().set(
+                                   rtype::Gun(engine::Key::Space),
+                                   Rotation3d(0.0f, std::numbers::pi_v<float> * 0.5, 0)
                                )
                            )
                            .abstract();
 
     ecs::entity spaceship =
         ecs::entity::create()
-            .add<Position3d, Rotation3d>()
+            .add<Position3d, Rotation3d, Velocity3d, rtype::Player>()
             .set(engine::Cuboid(1, 0.3f, 2.2f), engine::Color{ 225, 225, 235, 255 })
             .children(
                 ecs::entity::instantiate(wing).set(Position3d(0.7, 0, 0)),
                 ecs::entity::instantiate(wing).set(Position3d(-0.7, 0, 0))
             );
 
-    constexpr float ship_angle = 110.0f * (std::numbers::pi_v<float> / 180.0f);
+    for (int x = 0; x < 100; ++x) {
+        for (int y = 0; y < 100; ++y) {
+            ecs::entity::instantiate(spaceship).set(Position3d(x * 5, y * 5, 0));
+        }
+    }
 
-    ecs::entity::instantiate(spaceship)
-        .add<Velocity3d>()
-        .set(
-            rtype::MoveInput{
-                .left = engine::Key::A,
-                .right = engine::Key::D,
-                .up = engine::Key::W,
-                .down = engine::Key::S,
-                .speed = 2.0f,
-            },
-            Rotation3d(0, ship_angle, 0)
-        )
-        .add<rtype::Player>()
-        .children(
-            ecs::entity::create().set(
-                rtype::Gun(engine::Key::Space),
-                Position3d(0.7f, 0.0f, 0.0f),
-                Rotation3d(0.0f, std::numbers::pi_v<float> * 0.5f, 0.0f)
-            ),
-            ecs::entity::create().set(
-                rtype::Gun(engine::Key::Space),
-                Position3d(-0.7f, 0.0f, 0.0f),
-                Rotation3d(0.0f, std::numbers::pi_v<float> * 0.5f, 0.0f)
-            )
-        );
     ecs::run();
 }

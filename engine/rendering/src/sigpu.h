@@ -42,31 +42,6 @@ void sigpu_shadows(bool enabled, float distance);
 void sigpu_msaa(int samples);
 void sigpu_bloom(bool enabled, float threshold, float intensity);
 
-void sigpu_cube(
-    float x,
-    float y,
-    float z,
-    float width,
-    float height,
-    float depth,
-    sigpu_color_t color,
-    float bloom
-);
-
-void sigpu_cube_rotated(
-    float x,
-    float y,
-    float z,
-    float width,
-    float height,
-    float depth,
-    float rx,
-    float ry,
-    float rz,
-    sigpu_color_t color,
-    float bloom
-);
-
 #ifdef __cplusplus
 }
 #endif

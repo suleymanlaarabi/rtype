@@ -5,8 +5,10 @@ JOBS ?= $(shell nproc 2>/dev/null || echo 4)
 
 CLIENT_BINARY := build/games/rtype/client/rtype_client
 SERVER_BINARY := build/games/rtype/server/rtype_server
+PERF_BUILD_DIR := build-perf
+PERF_FLAGS := -O3 -DNDEBUG -march=native -mtune=native -ffast-math -fno-semantic-interposition
 
-.PHONY: all configure compile build debug release run run-server test format lint clean re help
+.PHONY: all configure compile build debug release perf run run-server test format lint clean re help
 
 all: debug
 
@@ -23,6 +25,14 @@ debug:
 
 release:
 	$(MAKE) build BUILD_TYPE=Release
+
+perf:
+	cmake -S . -B $(PERF_BUILD_DIR) \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+		-DCMAKE_C_FLAGS_RELEASE="$(PERF_FLAGS)" \
+		-DCMAKE_CXX_FLAGS_RELEASE="$(PERF_FLAGS)"
+	cmake --build $(PERF_BUILD_DIR) --parallel $(JOBS)
 
 test: build
 	ctest --test-dir build --output-on-failure
@@ -41,9 +51,10 @@ lint: configure
 
 clean:
 	rm -rf build
+	rm -rf $(PERF_BUILD_DIR)
 	rm -f CMakeUserPresets.json
 
 re: clean all
 
 help:
-	@echo "make [debug|release|run|run-server|test|format|lint|clean|re|help]"
+	@echo "make [debug|release|perf|run|run-server|test|format|lint|clean|re|help]"

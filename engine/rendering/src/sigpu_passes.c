@@ -1,78 +1,129 @@
 #include "sigpu_internal.h"
 
-#include <string.h>
+static bool no_instances(void) {
+    return g_sigpu.shared_axis_count == 0 && g_sigpu.shared_rotated_count == 0 &&
+           g_sigpu.owned_axis_count == 0 && g_sigpu.owned_rotated_count == 0;
+}
+
+static void upload_instance_buffer(
+    SDL_GPUCopyPass *copy,
+    SDL_GPUTransferBuffer *transfer,
+    SDL_GPUBuffer *buffer,
+    Uint32 capacity_size,
+    Uint32 shared_size,
+    Uint32 shared_count,
+    Uint32 owned_size,
+    Uint32 owned_count
+) {
+    bool cycle = true;
+    if (shared_count > 0) {
+        SDL_UploadToGPUBuffer(
+            copy,
+            &(SDL_GPUTransferBufferLocation){ .transfer_buffer = transfer },
+            &(SDL_GPUBufferRegion){
+                .buffer = buffer,
+                .size = shared_count * shared_size,
+            },
+            cycle
+        );
+        cycle = false;
+    }
+    if (owned_count > 0) {
+        const Uint32 offset = capacity_size - owned_count * owned_size;
+        SDL_UploadToGPUBuffer(
+            copy,
+            &(SDL_GPUTransferBufferLocation){
+                .transfer_buffer = transfer,
+                .offset = offset,
+            },
+            &(SDL_GPUBufferRegion){
+                .buffer = buffer,
+                .offset = offset,
+                .size = owned_count * owned_size,
+            },
+            cycle
+        );
+    }
+}
 
 static void upload_instances(void) {
-    if (g_sigpu.axis_count == 0 && g_sigpu.rotated_count == 0) {
+    SDL_UnmapGPUTransferBuffer(g_sigpu.device, g_sigpu.axis_transfer);
+    SDL_UnmapGPUTransferBuffer(g_sigpu.device, g_sigpu.rotated_transfer);
+
+    if (no_instances()) {
         return;
     }
 
-    if (g_sigpu.axis_count > 0) {
-        void *data = SDL_MapGPUTransferBuffer(g_sigpu.device, g_sigpu.axis_transfer, true);
-        memcpy(data, g_sigpu.axis_instances, g_sigpu.axis_count * sizeof(sigpu_axis_instance_t));
-        SDL_UnmapGPUTransferBuffer(g_sigpu.device, g_sigpu.axis_transfer);
-    }
-
-    if (g_sigpu.rotated_count > 0) {
-        void *data = SDL_MapGPUTransferBuffer(g_sigpu.device, g_sigpu.rotated_transfer, true);
-        memcpy(
-            data,
-            g_sigpu.rotated_instances,
-            g_sigpu.rotated_count * sizeof(sigpu_rotated_instance_t)
-        );
-        SDL_UnmapGPUTransferBuffer(g_sigpu.device, g_sigpu.rotated_transfer);
-    }
-
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(g_sigpu.command_buffer);
-
-    if (g_sigpu.axis_count > 0) {
-        SDL_UploadToGPUBuffer(
-            copy,
-            &(SDL_GPUTransferBufferLocation){ .transfer_buffer = g_sigpu.axis_transfer },
-            &(SDL_GPUBufferRegion){ .buffer = g_sigpu.axis_buffer,
-                                    .size = g_sigpu.axis_count * sizeof(sigpu_axis_instance_t) },
-            true
-        );
-    }
-
-    if (g_sigpu.rotated_count > 0) {
-        SDL_UploadToGPUBuffer(
-            copy,
-            &(SDL_GPUTransferBufferLocation){ .transfer_buffer = g_sigpu.rotated_transfer },
-            &(SDL_GPUBufferRegion){
-                .buffer = g_sigpu.rotated_buffer,
-                .size = g_sigpu.rotated_count * sizeof(sigpu_rotated_instance_t),
-            },
-            true
-        );
-    }
-
+    upload_instance_buffer(
+        copy,
+        g_sigpu.axis_transfer,
+        g_sigpu.axis_buffer,
+        g_sigpu.axis_capacity * sizeof(sigpu_axis_instance_t),
+        sizeof(sigpu_shared_axis_instance_t),
+        g_sigpu.shared_axis_count,
+        sizeof(sigpu_axis_instance_t),
+        g_sigpu.owned_axis_count
+    );
+    upload_instance_buffer(
+        copy,
+        g_sigpu.rotated_transfer,
+        g_sigpu.rotated_buffer,
+        g_sigpu.rotated_capacity * sizeof(sigpu_rotated_instance_t),
+        sizeof(sigpu_shared_rotated_instance_t),
+        g_sigpu.shared_rotated_count,
+        sizeof(sigpu_rotated_instance_t),
+        g_sigpu.owned_rotated_count
+    );
     SDL_EndGPUCopyPass(copy);
+}
+
+static void bind_mesh(SDL_GPURenderPass *pass) {
+    SDL_GPUBufferBinding vertex_binding = { .buffer = g_sigpu.vertex_buffer };
+    SDL_GPUBufferBinding index_binding = { .buffer = g_sigpu.index_buffer };
+    SDL_BindGPUVertexBuffers(pass, 0, &vertex_binding, 1);
+    SDL_BindGPUIndexBuffer(pass, &index_binding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 }
 
 static void bind_and_draw(
     SDL_GPURenderPass *pass,
     SDL_GPUGraphicsPipeline *pipeline,
     SDL_GPUBuffer *instance_buffer,
+    Uint32 offset,
     Uint32 count
 ) {
     if (count == 0) {
         return;
     }
 
-    SDL_GPUBufferBinding vertex_bindings[2] = {
-        { .buffer = g_sigpu.vertex_buffer },
-        { .buffer = instance_buffer },
-    };
-    SDL_GPUBufferBinding index_binding = { .buffer = g_sigpu.index_buffer };
+    SDL_GPUBufferBinding instance_binding = { .buffer = instance_buffer, .offset = offset };
     SDL_BindGPUGraphicsPipeline(pass, pipeline);
-    SDL_BindGPUVertexBuffers(pass, 0, vertex_bindings, 2);
-    SDL_BindGPUIndexBuffer(pass, &index_binding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+    SDL_BindGPUVertexBuffers(pass, 1, &instance_binding, 1);
     SDL_DrawGPUIndexedPrimitives(pass, 36, count, 0, 0, 0);
 }
 
+static void draw_shared_batches(
+    SDL_GPURenderPass *pass,
+    SDL_GPUGraphicsPipeline *pipeline,
+    SDL_GPUBuffer *buffer,
+    const sigpu_shared_batch_t *batches,
+    Uint32 batch_count,
+    Uint32 stride
+) {
+    for (Uint32 index = 0; index < batch_count; index++) {
+        const sigpu_shared_batch_t *batch = &batches[index];
+        SDL_PushGPUVertexUniformData(
+            g_sigpu.command_buffer,
+            1,
+            &batch->material,
+            sizeof(batch->material)
+        );
+        bind_and_draw(pass, pipeline, buffer, batch->first * stride, batch->count);
+    }
+}
+
 static void draw_shadow_pass(void) {
-    if (!g_sigpu.shadows_enabled || (g_sigpu.axis_count == 0 && g_sigpu.rotated_count == 0)) {
+    if (!g_sigpu.shadows_enabled || no_instances()) {
         return;
     }
 
@@ -93,12 +144,36 @@ static void draw_shadow_pass(void) {
         &g_sigpu.light_view_projection,
         sizeof(g_sigpu.light_view_projection)
     );
-    bind_and_draw(pass, g_sigpu.axis_shadow_pipeline, g_sigpu.axis_buffer, g_sigpu.axis_count);
+    bind_mesh(pass);
+    draw_shared_batches(
+        pass,
+        g_sigpu.shared_axis_shadow_pipeline,
+        g_sigpu.axis_buffer,
+        g_sigpu.shared_axis_batches,
+        g_sigpu.shared_axis_batch_count,
+        sizeof(sigpu_shared_axis_instance_t)
+    );
+    draw_shared_batches(
+        pass,
+        g_sigpu.shared_rotated_shadow_pipeline,
+        g_sigpu.rotated_buffer,
+        g_sigpu.shared_rotated_batches,
+        g_sigpu.shared_rotated_batch_count,
+        sizeof(sigpu_shared_rotated_instance_t)
+    );
+    bind_and_draw(
+        pass,
+        g_sigpu.axis_shadow_pipeline,
+        g_sigpu.axis_buffer,
+        (g_sigpu.axis_capacity - g_sigpu.owned_axis_count) * sizeof(sigpu_axis_instance_t),
+        g_sigpu.owned_axis_count
+    );
     bind_and_draw(
         pass,
         g_sigpu.rotated_shadow_pipeline,
         g_sigpu.rotated_buffer,
-        g_sigpu.rotated_count
+        (g_sigpu.rotated_capacity - g_sigpu.owned_rotated_count) * sizeof(sigpu_rotated_instance_t),
+        g_sigpu.owned_rotated_count
     );
     SDL_EndGPURenderPass(pass);
 }
@@ -174,8 +249,37 @@ static void draw_main_pass(void) {
     SDL_PushGPUVertexUniformData(g_sigpu.command_buffer, 0, &transforms, sizeof(transforms));
     SDL_PushGPUFragmentUniformData(g_sigpu.command_buffer, 0, &lighting, sizeof(lighting));
     SDL_BindGPUFragmentSamplers(pass, 0, &shadow_binding, 1);
-    bind_and_draw(pass, g_sigpu.axis_pipeline, g_sigpu.axis_buffer, g_sigpu.axis_count);
-    bind_and_draw(pass, g_sigpu.rotated_pipeline, g_sigpu.rotated_buffer, g_sigpu.rotated_count);
+    bind_mesh(pass);
+    draw_shared_batches(
+        pass,
+        g_sigpu.shared_axis_pipeline,
+        g_sigpu.axis_buffer,
+        g_sigpu.shared_axis_batches,
+        g_sigpu.shared_axis_batch_count,
+        sizeof(sigpu_shared_axis_instance_t)
+    );
+    draw_shared_batches(
+        pass,
+        g_sigpu.shared_rotated_pipeline,
+        g_sigpu.rotated_buffer,
+        g_sigpu.shared_rotated_batches,
+        g_sigpu.shared_rotated_batch_count,
+        sizeof(sigpu_shared_rotated_instance_t)
+    );
+    bind_and_draw(
+        pass,
+        g_sigpu.axis_pipeline,
+        g_sigpu.axis_buffer,
+        (g_sigpu.axis_capacity - g_sigpu.owned_axis_count) * sizeof(sigpu_axis_instance_t),
+        g_sigpu.owned_axis_count
+    );
+    bind_and_draw(
+        pass,
+        g_sigpu.rotated_pipeline,
+        g_sigpu.rotated_buffer,
+        (g_sigpu.rotated_capacity - g_sigpu.owned_rotated_count) * sizeof(sigpu_rotated_instance_t),
+        g_sigpu.owned_rotated_count
+    );
     SDL_EndGPURenderPass(pass);
 }
 

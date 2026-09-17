@@ -1,6 +1,5 @@
 #include "sigpu_internal.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 static const sigpu_cube_vertex_t cube_vertices[24] = {
@@ -69,15 +68,12 @@ static void create_cube_mesh(void) {
     SDL_ReleaseGPUTransferBuffer(g_sigpu.device, transfer);
 }
 
-static void *resize_instances(
-    void *instances,
+static void resize_instances(
     SDL_GPUBuffer **buffer,
     SDL_GPUTransferBuffer **transfer,
     Uint32 capacity,
     Uint32 stride
 ) {
-    instances = realloc(instances, stride * capacity);
-
     if (*buffer) {
         SDL_ReleaseGPUBuffer(g_sigpu.device, *buffer);
         SDL_ReleaseGPUTransferBuffer(g_sigpu.device, *transfer);
@@ -98,27 +94,24 @@ static void *resize_instances(
             .size = size,
         }
     );
-    return instances;
 }
 
 static void resize_axis_instances(Uint32 capacity) {
-    g_sigpu.axis_instances = resize_instances(
-        g_sigpu.axis_instances,
+    resize_instances(
         &g_sigpu.axis_buffer,
         &g_sigpu.axis_transfer,
         capacity,
-        sizeof(*g_sigpu.axis_instances)
+        sizeof(sigpu_axis_instance_t)
     );
     g_sigpu.axis_capacity = capacity;
 }
 
 static void resize_rotated_instances(Uint32 capacity) {
-    g_sigpu.rotated_instances = resize_instances(
-        g_sigpu.rotated_instances,
+    resize_instances(
         &g_sigpu.rotated_buffer,
         &g_sigpu.rotated_transfer,
         capacity,
-        sizeof(*g_sigpu.rotated_instances)
+        sizeof(sigpu_rotated_instance_t)
     );
     g_sigpu.rotated_capacity = capacity;
 }
@@ -302,13 +295,7 @@ void sigpu_resources_destroy(void) {
     SDL_ReleaseGPUTransferBuffer(g_sigpu.device, g_sigpu.axis_transfer);
     SDL_ReleaseGPUTransferBuffer(g_sigpu.device, g_sigpu.rotated_transfer);
     release_frame_targets();
-    free(g_sigpu.axis_instances);
-    free(g_sigpu.rotated_instances);
 }
-
-void sigpu_axis_instances_grow(void) { resize_axis_instances(g_sigpu.axis_capacity * 2); }
-
-void sigpu_rotated_instances_grow(void) { resize_rotated_instances(g_sigpu.rotated_capacity * 2); }
 
 void sigpu_frame_targets_prepare(void) { ensure_frame_targets(); }
 

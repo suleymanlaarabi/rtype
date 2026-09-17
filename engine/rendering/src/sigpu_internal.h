@@ -7,8 +7,8 @@
 #include <math.h>
 #include <stdint.h>
 
-#define SIGPU_AXIS_CAPACITY 131072
-#define SIGPU_ROTATED_CAPACITY 16384
+#define SIGPU_AXIS_CAPACITY 262144
+#define SIGPU_ROTATED_CAPACITY 32768
 #define SIGPU_SHADOW_SIZE 2048
 #define SIGPU_HDR_FORMAT SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT
 #define SIGPU_PI 3.14159265358979323846f
@@ -67,6 +67,39 @@ typedef struct {
 } sigpu_rotated_instance_t;
 
 typedef struct {
+    float x;
+    float y;
+    float z;
+    float scale_x;
+    float scale_y;
+    float scale_z;
+} sigpu_shared_axis_instance_t;
+
+typedef struct {
+    float x;
+    float y;
+    float z;
+    float scale_x;
+    float scale_y;
+    float scale_z;
+    int16_t qx;
+    int16_t qy;
+    int16_t qz;
+    int16_t qw;
+} sigpu_shared_rotated_instance_t;
+
+typedef struct {
+    float size_bloom[4];
+    float color[4];
+} sigpu_shared_material_t;
+
+typedef struct {
+    sigpu_shared_material_t material;
+    Uint32 first;
+    Uint32 count;
+} sigpu_shared_batch_t;
+
+typedef struct {
     sigpu_vec3_t position;
     sigpu_vec3_t target;
     float fov;
@@ -99,8 +132,12 @@ typedef struct {
 
     SDL_GPUGraphicsPipeline *axis_pipeline;
     SDL_GPUGraphicsPipeline *rotated_pipeline;
+    SDL_GPUGraphicsPipeline *shared_axis_pipeline;
+    SDL_GPUGraphicsPipeline *shared_rotated_pipeline;
     SDL_GPUGraphicsPipeline *axis_shadow_pipeline;
     SDL_GPUGraphicsPipeline *rotated_shadow_pipeline;
+    SDL_GPUGraphicsPipeline *shared_axis_shadow_pipeline;
+    SDL_GPUGraphicsPipeline *shared_rotated_shadow_pipeline;
     SDL_GPUGraphicsPipeline *bloom_down_pipeline;
     SDL_GPUGraphicsPipeline *bloom_blur_pipeline;
     SDL_GPUGraphicsPipeline *bloom_composite_pipeline;
@@ -125,10 +162,18 @@ typedef struct {
     SDL_GPUSampler *shadow_sampler;
     SDL_GPUSampler *bloom_sampler;
 
-    sigpu_axis_instance_t *axis_instances;
-    sigpu_rotated_instance_t *rotated_instances;
-    Uint32 axis_count;
-    Uint32 rotated_count;
+    void *axis_mapped;
+    void *rotated_mapped;
+    sigpu_shared_batch_t *shared_axis_batches;
+    sigpu_shared_batch_t *shared_rotated_batches;
+    Uint32 shared_axis_count;
+    Uint32 shared_rotated_count;
+    Uint32 owned_axis_count;
+    Uint32 owned_rotated_count;
+    Uint32 shared_axis_batch_count;
+    Uint32 shared_rotated_batch_count;
+    Uint32 shared_axis_batch_capacity;
+    Uint32 shared_rotated_batch_capacity;
     Uint32 axis_capacity;
     Uint32 rotated_capacity;
 
@@ -172,6 +217,10 @@ typedef struct {
     float light_max_y;
     float light_near;
     float light_far;
+    sigpu_vec3_t shadow_center;
+    sigpu_vec3_t shadow_up;
+    float shadow_minimum_z;
+    float shadow_maximum_z;
 } sigpu_state_t;
 
 extern sigpu_state_t g_sigpu;
@@ -216,6 +265,10 @@ static inline float sigpu_cube_radius(float width, float height, float depth) {
     return 0.5f * sqrtf(width * width + height * height + depth * depth);
 }
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 sigpu_mat4_t sigpu_mat4_identity(void);
 sigpu_mat4_t sigpu_mat4_mul(sigpu_mat4_t a, sigpu_mat4_t b);
 sigpu_mat4_t sigpu_mat4_perspective_lh(float fov, float aspect, float near_plane, float far_plane);
@@ -235,12 +288,19 @@ void sigpu_main_pipelines_recreate(void);
 
 void sigpu_resources_create(int samples);
 void sigpu_resources_destroy(void);
-void sigpu_axis_instances_grow(void);
-void sigpu_rotated_instances_grow(void);
 void sigpu_frame_targets_prepare(void);
 void sigpu_sample_count_set(int samples);
 
-void sigpu_visibility_prepare(float aspect);
+void sigpu_view_prepare(float aspect);
+void sigpu_shadow_bounds_begin(float aspect);
+void sigpu_shadow_bounds_extend(sigpu_vec3_t center, float radius);
+void sigpu_shadow_bounds_end(void);
+bool sigpu_camera_visible(sigpu_vec3_t center, float radius, float aspect);
+bool sigpu_shadow_visible(sigpu_vec3_t center, float radius);
 void sigpu_passes_draw(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

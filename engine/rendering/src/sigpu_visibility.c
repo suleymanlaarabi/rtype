@@ -52,19 +52,19 @@ static void camera_corners(float aspect, float far_distance, sigpu_vec3_t corner
     );
 }
 
-static void extend_shadow_depth(sigpu_vec3_t center, float radius, float *minimum, float *maximum) {
+void sigpu_shadow_bounds_extend(sigpu_vec3_t center, float radius) {
     sigpu_vec3_t light_position = sigpu_mat4_transform_point(g_sigpu.light_view, center);
 
     if (light_position.x + radius >= g_sigpu.light_min_x &&
         light_position.x - radius <= g_sigpu.light_max_x &&
         light_position.y + radius >= g_sigpu.light_min_y &&
         light_position.y - radius <= g_sigpu.light_max_y) {
-        *minimum = fminf(*minimum, light_position.z - radius);
-        *maximum = fmaxf(*maximum, light_position.z + radius);
+        g_sigpu.shadow_minimum_z = fminf(g_sigpu.shadow_minimum_z, light_position.z - radius);
+        g_sigpu.shadow_maximum_z = fmaxf(g_sigpu.shadow_maximum_z, light_position.z + radius);
     }
 }
 
-static void build_shadow_transform(float aspect) {
+void sigpu_shadow_bounds_begin(float aspect) {
     float shadow_distance = fminf(g_sigpu.camera.far_plane, g_sigpu.shadow_distance);
     sigpu_vec3_t corners[8];
     camera_corners(aspect, shadow_distance, corners);
@@ -82,8 +82,8 @@ static void build_shadow_transform(float aspect) {
     g_sigpu.light_max_x = -INFINITY;
     g_sigpu.light_min_y = INFINITY;
     g_sigpu.light_max_y = -INFINITY;
-    float minimum_z = INFINITY;
-    float maximum_z = -INFINITY;
+    g_sigpu.shadow_minimum_z = INFINITY;
+    g_sigpu.shadow_maximum_z = -INFINITY;
 
     for (int index = 0; index < 8; index++) {
         sigpu_vec3_t point = sigpu_mat4_transform_point(g_sigpu.light_view, corners[index]);
@@ -91,34 +91,14 @@ static void build_shadow_transform(float aspect) {
         g_sigpu.light_max_x = fmaxf(g_sigpu.light_max_x, point.x);
         g_sigpu.light_min_y = fminf(g_sigpu.light_min_y, point.y);
         g_sigpu.light_max_y = fmaxf(g_sigpu.light_max_y, point.y);
-        minimum_z = fminf(minimum_z, point.z);
-        maximum_z = fmaxf(maximum_z, point.z);
+        g_sigpu.shadow_minimum_z = fminf(g_sigpu.shadow_minimum_z, point.z);
+        g_sigpu.shadow_maximum_z = fmaxf(g_sigpu.shadow_maximum_z, point.z);
     }
 
     g_sigpu.light_min_x -= 1.0f;
     g_sigpu.light_max_x += 1.0f;
     g_sigpu.light_min_y -= 1.0f;
     g_sigpu.light_max_y += 1.0f;
-
-    for (Uint32 index = 0; index < g_sigpu.axis_count; index++) {
-        sigpu_axis_instance_t *cube = &g_sigpu.axis_instances[index];
-        extend_shadow_depth(
-            (sigpu_vec3_t){ cube->x, cube->y, cube->z },
-            sigpu_cube_radius(cube->width, cube->height, cube->depth),
-            &minimum_z,
-            &maximum_z
-        );
-    }
-
-    for (Uint32 index = 0; index < g_sigpu.rotated_count; index++) {
-        sigpu_rotated_instance_t *cube = &g_sigpu.rotated_instances[index];
-        extend_shadow_depth(
-            (sigpu_vec3_t){ cube->x, cube->y, cube->z },
-            sigpu_cube_radius(cube->width, cube->height, cube->depth),
-            &minimum_z,
-            &maximum_z
-        );
-    }
 
     float width = g_sigpu.light_max_x - g_sigpu.light_min_x;
     float height = g_sigpu.light_max_y - g_sigpu.light_min_y;
@@ -131,13 +111,21 @@ static void build_shadow_transform(float aspect) {
     g_sigpu.light_min_y = center_y - height * 0.5f;
     g_sigpu.light_max_y = center_y + height * 0.5f;
 
-    float depth_shift = minimum_z - 5.0f;
+    g_sigpu.shadow_center = center;
+    g_sigpu.shadow_up = up;
+}
+
+void sigpu_shadow_bounds_end(void) {
+    float depth_shift = g_sigpu.shadow_minimum_z - 5.0f;
     sigpu_vec3_t light_eye =
-        sigpu_vec3_add(center, sigpu_vec3_scale(g_sigpu.sun_direction, depth_shift));
-    g_sigpu.light_view =
-        sigpu_mat4_look_at_lh(light_eye, sigpu_vec3_add(light_eye, g_sigpu.sun_direction), up);
+        sigpu_vec3_add(g_sigpu.shadow_center, sigpu_vec3_scale(g_sigpu.sun_direction, depth_shift));
+    g_sigpu.light_view = sigpu_mat4_look_at_lh(
+        light_eye,
+        sigpu_vec3_add(light_eye, g_sigpu.sun_direction),
+        g_sigpu.shadow_up
+    );
     g_sigpu.light_near = 1.0f;
-    g_sigpu.light_far = maximum_z - minimum_z + 10.0f;
+    g_sigpu.light_far = g_sigpu.shadow_maximum_z - g_sigpu.shadow_minimum_z + 10.0f;
     sigpu_mat4_t projection = sigpu_mat4_orthographic_lh(
         g_sigpu.light_min_x,
         g_sigpu.light_max_x,
@@ -149,7 +137,7 @@ static void build_shadow_transform(float aspect) {
     g_sigpu.light_view_projection = sigpu_mat4_mul(projection, g_sigpu.light_view);
 }
 
-static bool camera_visible(sigpu_vec3_t center, float radius, float aspect) {
+bool sigpu_camera_visible(sigpu_vec3_t center, float radius, float aspect) {
     sigpu_vec3_t position = sigpu_mat4_transform_point(g_sigpu.view, center);
 
     if (position.z + radius < g_sigpu.camera.near_plane ||
@@ -163,7 +151,7 @@ static bool camera_visible(sigpu_vec3_t center, float radius, float aspect) {
     return fabsf(position.x) <= extent_x + radius && fabsf(position.y) <= extent_y + radius;
 }
 
-static bool shadow_visible(sigpu_vec3_t center, float radius) {
+bool sigpu_shadow_visible(sigpu_vec3_t center, float radius) {
     sigpu_vec3_t position = sigpu_mat4_transform_point(g_sigpu.light_view, center);
     return position.x + radius >= g_sigpu.light_min_x &&
            position.x - radius <= g_sigpu.light_max_x &&
@@ -172,38 +160,7 @@ static bool shadow_visible(sigpu_vec3_t center, float radius) {
            position.z + radius >= g_sigpu.light_near && position.z - radius <= g_sigpu.light_far;
 }
 
-static void compact_instances(float aspect) {
-    Uint32 output = 0;
-
-    for (Uint32 index = 0; index < g_sigpu.axis_count; index++) {
-        sigpu_axis_instance_t cube = g_sigpu.axis_instances[index];
-        sigpu_vec3_t center = { cube.x, cube.y, cube.z };
-        float radius = sigpu_cube_radius(cube.width, cube.height, cube.depth);
-
-        if (camera_visible(center, radius, aspect) ||
-            (g_sigpu.shadows_enabled && shadow_visible(center, radius))) {
-            g_sigpu.axis_instances[output++] = cube;
-        }
-    }
-
-    g_sigpu.axis_count = output;
-    output = 0;
-
-    for (Uint32 index = 0; index < g_sigpu.rotated_count; index++) {
-        sigpu_rotated_instance_t cube = g_sigpu.rotated_instances[index];
-        sigpu_vec3_t center = { cube.x, cube.y, cube.z };
-        float radius = sigpu_cube_radius(cube.width, cube.height, cube.depth);
-
-        if (camera_visible(center, radius, aspect) ||
-            (g_sigpu.shadows_enabled && shadow_visible(center, radius))) {
-            g_sigpu.rotated_instances[output++] = cube;
-        }
-    }
-
-    g_sigpu.rotated_count = output;
-}
-
-void sigpu_visibility_prepare(float aspect) {
+void sigpu_view_prepare(float aspect) {
     g_sigpu.view = sigpu_mat4_look_at_lh(
         g_sigpu.camera.position,
         g_sigpu.camera.target,
@@ -217,11 +174,5 @@ void sigpu_visibility_prepare(float aspect) {
     );
     g_sigpu.view_projection = sigpu_mat4_mul(projection, g_sigpu.view);
 
-    if (g_sigpu.shadows_enabled) {
-        build_shadow_transform(aspect);
-    } else {
-        g_sigpu.light_view_projection = sigpu_mat4_identity();
-    }
-
-    compact_instances(aspect);
+    g_sigpu.light_view_projection = sigpu_mat4_identity();
 }

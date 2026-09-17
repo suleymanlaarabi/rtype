@@ -11,13 +11,6 @@ static SDL_FColor linear_color(sigpu_color_t color) {
     };
 }
 
-static void pack_color(uint8_t *target, sigpu_color_t color) {
-    target[0] = g_sigpu.linear_lut[color.r];
-    target[1] = g_sigpu.linear_lut[color.g];
-    target[2] = g_sigpu.linear_lut[color.b];
-    target[3] = color.a;
-}
-
 void sigpu_init(const char *title, int width, int height, int samples) {
     for (int index = 0; index < 256; index++) {
         float srgb = index / 255.0f;
@@ -124,8 +117,12 @@ bool sigpu_begin_frame(void) {
         }
     }
 
-    g_sigpu.axis_count = 0;
-    g_sigpu.rotated_count = 0;
+    g_sigpu.shared_axis_count = 0;
+    g_sigpu.shared_rotated_count = 0;
+    g_sigpu.owned_axis_count = 0;
+    g_sigpu.owned_rotated_count = 0;
+    g_sigpu.shared_axis_batch_count = 0;
+    g_sigpu.shared_rotated_batch_count = 0;
     g_sigpu.any_bloom = false;
     g_sigpu.command_buffer = SDL_AcquireGPUCommandBuffer(g_sigpu.device);
     g_sigpu.swapchain = NULL;
@@ -136,75 +133,10 @@ bool sigpu_begin_frame(void) {
         &g_sigpu.frame_width,
         &g_sigpu.frame_height
     );
+    g_sigpu.axis_mapped = SDL_MapGPUTransferBuffer(g_sigpu.device, g_sigpu.axis_transfer, true);
+    g_sigpu.rotated_mapped =
+        SDL_MapGPUTransferBuffer(g_sigpu.device, g_sigpu.rotated_transfer, true);
     return running;
-}
-
-void sigpu_cube(
-    float x,
-    float y,
-    float z,
-    float width,
-    float height,
-    float depth,
-    sigpu_color_t color,
-    float bloom
-) {
-    if (g_sigpu.axis_count == g_sigpu.axis_capacity) {
-        sigpu_axis_instances_grow();
-    }
-
-    sigpu_axis_instance_t *cube = &g_sigpu.axis_instances[g_sigpu.axis_count++];
-    cube->x = x;
-    cube->y = y;
-    cube->z = z;
-    cube->width = width;
-    cube->height = height;
-    cube->depth = depth;
-    pack_color(&cube->r, color);
-    cube->bloom = fmaxf(bloom, 0.0f);
-    g_sigpu.any_bloom = g_sigpu.any_bloom || cube->bloom > 0.0f;
-}
-
-void sigpu_cube_rotated(
-    float x,
-    float y,
-    float z,
-    float width,
-    float height,
-    float depth,
-    float rx,
-    float ry,
-    float rz,
-    sigpu_color_t color,
-    float bloom
-) {
-    if (g_sigpu.rotated_count == g_sigpu.rotated_capacity) {
-        sigpu_rotated_instances_grow();
-    }
-
-    float half_x = rx * SIGPU_PI / 360.0f;
-    float half_y = ry * SIGPU_PI / 360.0f;
-    float half_z = rz * SIGPU_PI / 360.0f;
-    float sx = sinf(half_x);
-    float cx = cosf(half_x);
-    float sy = sinf(half_y);
-    float cy = cosf(half_y);
-    float sz = sinf(half_z);
-    float cz = cosf(half_z);
-    sigpu_rotated_instance_t *cube = &g_sigpu.rotated_instances[g_sigpu.rotated_count++];
-    cube->x = x;
-    cube->y = y;
-    cube->z = z;
-    cube->width = width;
-    cube->height = height;
-    cube->depth = depth;
-    cube->qx = (int16_t)roundf((sx * cy * cz - cx * sy * sz) * 32767.0f);
-    cube->qy = (int16_t)roundf((cx * sy * cz + sx * cy * sz) * 32767.0f);
-    cube->qz = (int16_t)roundf((cx * cy * sz - sx * sy * cz) * 32767.0f);
-    cube->qw = (int16_t)roundf((cx * cy * cz + sx * sy * sz) * 32767.0f);
-    pack_color(&cube->r, color);
-    cube->bloom = fmaxf(bloom, 0.0f);
-    g_sigpu.any_bloom = g_sigpu.any_bloom || cube->bloom > 0.0f;
 }
 
 void sigpu_end_frame(void) {
@@ -215,8 +147,6 @@ void sigpu_end_frame(void) {
     }
 
     sigpu_frame_targets_prepare();
-    float aspect = (float)g_sigpu.frame_width / (float)g_sigpu.frame_height;
-    sigpu_visibility_prepare(aspect);
     sigpu_passes_draw();
     SDL_SubmitGPUCommandBuffer(g_sigpu.command_buffer);
     g_sigpu.command_buffer = NULL;
@@ -226,6 +156,8 @@ void sigpu_end_frame(void) {
 void sigpu_fini(void) {
     SDL_WaitForGPUIdle(g_sigpu.device);
     sigpu_resources_destroy();
+    SDL_free(g_sigpu.shared_axis_batches);
+    SDL_free(g_sigpu.shared_rotated_batches);
     SDL_ReleaseWindowFromGPUDevice(g_sigpu.device, g_sigpu.window);
     SDL_DestroyWindow(g_sigpu.window);
     SDL_DestroyGPUDevice(g_sigpu.device);

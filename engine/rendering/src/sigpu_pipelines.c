@@ -22,13 +22,13 @@ static SDL_GPUShader *load_shader(
     return shader;
 }
 
-static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
-    SDL_GPUShader *vertex_shader = load_shader(
-        rotated ? SIGPU_SHADER("cube_rotated.vert.spv") : SIGPU_SHADER("cube.vert.spv"),
-        SDL_GPU_SHADERSTAGE_VERTEX,
-        0,
-        1
-    );
+static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated, bool shared) {
+    const char *vertex_path =
+        shared ? (rotated ? SIGPU_SHADER("cube_rotated_shared.vert.spv")
+                          : SIGPU_SHADER("cube_shared.vert.spv"))
+               : (rotated ? SIGPU_SHADER("cube_rotated.vert.spv") : SIGPU_SHADER("cube.vert.spv"));
+    SDL_GPUShader *vertex_shader =
+        load_shader(vertex_path, SDL_GPU_SHADERSTAGE_VERTEX, 0, shared ? 2 : 1);
     SDL_GPUShader *fragment_shader =
         load_shader(SIGPU_SHADER("cube.frag.spv"), SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1);
     SDL_GPUVertexBufferDescription buffers[2] = {
@@ -39,7 +39,10 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
         },
         {
             .slot = 1,
-            .pitch = rotated ? sizeof(sigpu_rotated_instance_t) : sizeof(sigpu_axis_instance_t),
+            .pitch = shared ? (rotated ? sizeof(sigpu_shared_rotated_instance_t)
+                                       : sizeof(sigpu_shared_axis_instance_t))
+                            : (rotated ? sizeof(sigpu_rotated_instance_t)
+                                       : sizeof(sigpu_axis_instance_t)),
             .input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE,
         },
     };
@@ -73,9 +76,11 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
         {
             .location = 4,
             .buffer_slot = 1,
-            .format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
-            .offset = rotated ? offsetof(sigpu_rotated_instance_t, r)
-                              : offsetof(sigpu_axis_instance_t, r),
+            .format = shared ? SDL_GPU_VERTEXELEMENTFORMAT_SHORT4_NORM
+                             : SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
+            .offset = shared ? offsetof(sigpu_shared_rotated_instance_t, qx)
+                             : (rotated ? offsetof(sigpu_rotated_instance_t, r)
+                                        : offsetof(sigpu_axis_instance_t, r)),
         },
         {
             .location = 5,
@@ -103,7 +108,7 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
             .vertex_buffer_descriptions = buffers,
             .num_vertex_buffers = 2,
             .vertex_attributes = attributes,
-            .num_vertex_attributes = rotated ? 7 : 6,
+            .num_vertex_attributes = shared ? (rotated ? 5 : 4) : (rotated ? 7 : 6),
         },
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = {
@@ -133,13 +138,13 @@ static SDL_GPUGraphicsPipeline *create_main_pipeline(bool rotated) {
     return pipeline;
 }
 
-static SDL_GPUGraphicsPipeline *create_shadow_pipeline(bool rotated) {
-    SDL_GPUShader *vertex_shader = load_shader(
-        rotated ? SIGPU_SHADER("shadow_rotated.vert.spv") : SIGPU_SHADER("shadow.vert.spv"),
-        SDL_GPU_SHADERSTAGE_VERTEX,
-        0,
-        1
-    );
+static SDL_GPUGraphicsPipeline *create_shadow_pipeline(bool rotated, bool shared) {
+    const char *vertex_path = shared ? (rotated ? SIGPU_SHADER("shadow_rotated_shared.vert.spv")
+                                                : SIGPU_SHADER("shadow_shared.vert.spv"))
+                                     : (rotated ? SIGPU_SHADER("shadow_rotated.vert.spv")
+                                                : SIGPU_SHADER("shadow.vert.spv"));
+    SDL_GPUShader *vertex_shader =
+        load_shader(vertex_path, SDL_GPU_SHADERSTAGE_VERTEX, 0, shared ? 2 : 1);
     SDL_GPUShader *fragment_shader =
         load_shader(SIGPU_SHADER("shadow.frag.spv"), SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0);
     SDL_GPUVertexBufferDescription buffers[2] = {
@@ -150,7 +155,10 @@ static SDL_GPUGraphicsPipeline *create_shadow_pipeline(bool rotated) {
         },
         {
             .slot = 1,
-            .pitch = rotated ? sizeof(sigpu_rotated_instance_t) : sizeof(sigpu_axis_instance_t),
+            .pitch = shared ? (rotated ? sizeof(sigpu_shared_rotated_instance_t)
+                                       : sizeof(sigpu_shared_axis_instance_t))
+                            : (rotated ? sizeof(sigpu_rotated_instance_t)
+                                       : sizeof(sigpu_axis_instance_t)),
             .input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE,
         }
     };
@@ -224,10 +232,14 @@ static void create_main_pipelines(void) {
     if (g_sigpu.axis_pipeline) {
         SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.axis_pipeline);
         SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.rotated_pipeline);
+        SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.shared_axis_pipeline);
+        SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.shared_rotated_pipeline);
     }
 
-    g_sigpu.axis_pipeline = create_main_pipeline(false);
-    g_sigpu.rotated_pipeline = create_main_pipeline(true);
+    g_sigpu.axis_pipeline = create_main_pipeline(false, false);
+    g_sigpu.rotated_pipeline = create_main_pipeline(true, false);
+    g_sigpu.shared_axis_pipeline = create_main_pipeline(false, true);
+    g_sigpu.shared_rotated_pipeline = create_main_pipeline(true, true);
 }
 
 static void create_shadow_resources(void) {
@@ -257,8 +269,10 @@ static void create_shadow_resources(void) {
             .enable_compare = true,
         }
     );
-    g_sigpu.axis_shadow_pipeline = create_shadow_pipeline(false);
-    g_sigpu.rotated_shadow_pipeline = create_shadow_pipeline(true);
+    g_sigpu.axis_shadow_pipeline = create_shadow_pipeline(false, false);
+    g_sigpu.rotated_shadow_pipeline = create_shadow_pipeline(true, false);
+    g_sigpu.shared_axis_shadow_pipeline = create_shadow_pipeline(false, true);
+    g_sigpu.shared_rotated_shadow_pipeline = create_shadow_pipeline(true, true);
 }
 
 static SDL_GPUGraphicsPipeline *create_fullscreen_pipeline(
@@ -325,8 +339,12 @@ void sigpu_main_pipelines_recreate(void) { create_main_pipelines(); }
 void sigpu_pipelines_destroy(void) {
     SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.axis_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.rotated_pipeline);
+    SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.shared_axis_pipeline);
+    SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.shared_rotated_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.axis_shadow_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.rotated_shadow_pipeline);
+    SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.shared_axis_shadow_pipeline);
+    SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.shared_rotated_shadow_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.bloom_down_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.bloom_blur_pipeline);
     SDL_ReleaseGPUGraphicsPipeline(g_sigpu.device, g_sigpu.bloom_composite_pipeline);
