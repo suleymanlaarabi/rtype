@@ -46,15 +46,6 @@ void gameplay::import() {
                           rotation_speed * delta->value;
         });
 
-    ecs::system("IntegrateVelocity")
-        .each(
-            [](Position3d &position, const Velocity3d &velocity, ecs::res<const DeltaTime> delta) {
-                position.x += velocity.x * delta->value;
-                position.y += velocity.y * delta->value;
-                position.z += velocity.z * delta->value;
-            }
-        );
-
     ecs::system("Move")
         .phase(EcsPreUpdate)
         .each([](const MoveInput &input,
@@ -82,7 +73,7 @@ void gameplay::import() {
                       .set(
                           engine::Cuboid::splat(0.15f),
                           engine::Color::yellow(),
-                          engine::Bloom{ 2.0f },
+                          engine::Bloom(2.0f),
                           engine::DespawnIn::seconds(6)
                       )
                       .abstract();

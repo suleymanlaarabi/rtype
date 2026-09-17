@@ -4,6 +4,7 @@
 
 #include <SDL3/SDL.h>
 #include <siecs_spatial.h>
+#include <sireflect.h>
 
 #include <array>
 #include <cmath>
@@ -14,6 +15,25 @@ namespace engine {
 namespace {
 
 constexpr int default_multisampling = 4;
+constexpr sireflect_enum_desc_t engine_key_reflection = {
+    .name = "EngineKey",
+    .values = "{ "
+              "A = 0, "
+              "D = 1, "
+              "W = 2, "
+              "S = 3, "
+              "Q = 4, "
+              "Z = 5, "
+              "E = 6, "
+              "Left = 7, "
+              "Right = 8, "
+              "Up = 9, "
+              "Down = 10, "
+              "Space = 11 "
+              "}",
+    .size = sizeof(Key),
+    .align = alignof(Key),
+};
 
 sigpu_color_t to_sigpu(Color color) { return { color.r, color.g, color.b, color.a }; }
 
@@ -50,6 +70,8 @@ Cuboid Cuboid::splat(float value) { return Cuboid{ value, value, value }; }
 bool Keyboard::down(Key key) const { return keys[static_cast<std::size_t>(key)]; }
 
 void rendering::import() {
+    sireflect_register_enum(&engine_key_reflection);
+
     ecs::import<sispatial>();
     ecs::component<Color>();
     ecs::component<Cuboid>();

@@ -13,11 +13,9 @@ struct Gun {
 };
 
 struct MoveInput {
-    engine::Key left;
-    engine::Key right;
-    engine::Key up;
-    engine::Key down;
-    float speed;
+    using EngineKey = engine::Key;
+
+    reflected(EngineKey left; EngineKey right; EngineKey up; EngineKey down; float speed;);
 };
 
 struct gameplay {
