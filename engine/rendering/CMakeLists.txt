@@ -1,5 +1,8 @@
+find_package(SDL3 CONFIG REQUIRED)
+
 add_library(engine_rendering STATIC
     src/rendering.cpp
+    src/sigpu.c
 )
 
 add_library(engine::rendering ALIAS engine_rendering)
@@ -13,4 +16,16 @@ target_include_directories(engine_rendering
 target_link_libraries(engine_rendering
     PUBLIC
         engine::siecs
+    PRIVATE
+        SDL3::SDL3
 )
+
+target_compile_features(engine_rendering PRIVATE c_std_23)
+target_compile_definitions(engine_rendering
+    PRIVATE
+        SIGPU_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+)
+
+if(UNIX)
+    target_link_libraries(engine_rendering PRIVATE m)
+endif()

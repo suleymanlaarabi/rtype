@@ -1,19 +1,21 @@
 #pragma once
-#include "raylib.h"
+#include "rendering.hpp"
 #include <siecs.h>
 
 namespace rtype {
 
 struct Player {};
 
-struct Gun {};
-
-struct Speed {
-    reflected(float value;)
+struct Gun {
+    engine::Key key = engine::Key::Space;
 };
 
 struct MoveInput {
-    reflected(int left; int right; int up; int down; float speed;)
+    engine::Key left;
+    engine::Key right;
+    engine::Key up;
+    engine::Key down;
+    float speed;
 };
 
 struct gameplay {

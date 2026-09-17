@@ -1,51 +1,69 @@
 #include "gameplay.hpp"
 #include "core.hpp"
-#include "raylib.h"
 #include "rendering.hpp"
-#include "spatial.hpp"
+#include "siecs.h"
+#include <siecs_spatial.h>
 
 namespace rtype {
 
 void gameplay::import() {
     ecs::component<Player>();
     ecs::component<Gun>();
-    ecs::component<Speed>();
     ecs::component<MoveInput>();
+
+    ecs::system("IntegrateVelocity")
+        .each(
+            [](Position3d &position, const Velocity3d &velocity, ecs::res<const DeltaTime> delta) {
+                position.x += velocity.x * delta->value;
+                position.y += velocity.y * delta->value;
+            }
+        );
 
     ecs::system("MovePlayer")
         .require<Player>()
         .phase(EcsPreUpdate)
-        .each([](MoveInput &input, engine::Velocity &vel) {
-            vel = { 0 };
+        .each([](const MoveInput &input,
+                 Velocity3d &velocity,
+                 ecs::res<const engine::Keyboard> keyboard) {
+            velocity.x = 0;
+            velocity.y = 0;
 
-            if (IsKeyDown(input.left)) {
-                vel.x = -input.speed;
+            if (keyboard->down(input.left)) {
+                velocity.x = -input.speed;
             }
-            if (IsKeyDown(input.right)) {
-                vel.x = input.speed;
+            if (keyboard->down(input.right)) {
+                velocity.x = input.speed;
             }
-            if (IsKeyDown(input.up)) {
-                vel.y = -input.speed;
+            if (keyboard->down(input.up)) {
+                velocity.y = input.speed;
             }
-            if (IsKeyDown(input.down)) {
-                vel.y = input.speed;
+            if (keyboard->down(input.down)) {
+                velocity.y = -input.speed;
             }
         });
 
     auto bullet = ecs::entity::create()
-                      .set(engine::Velocity{ 1200, 0 })
-                      .set(engine::Rectangle{ 20, 20 })
-                      .set(engine::Color{ 0, 255, 0, 255 })
-                      .set(engine::DespawnIn::from_seconds(4));
+                      .set(
+                          Velocity3d(12.0f, 0.0f),
+                          engine::Cuboid::splat(0.2f),
+                          engine::Color::green(),
+                          engine::DespawnIn::seconds(1)
+                      )
+                      .abstract();
 
     ecs::system("SpawnProjectile")
-        .require<Gun>()
         .phase(EcsOnUpdate)
-        .each([bullet](const engine::Position &position) {
-            if (IsKeyDown(KEY_SPACE)) {
+        .each([bullet](
+                  ecs::entity entity,
+                  const Gun &gun,
+                  const GlobalPosition3d &position,
+                  ecs::res<const engine::Keyboard> keyboard
+              ) {
+            if (keyboard->down(gun.key)) {
                 ecs::entity::instantiate(bullet).set(
-                    engine::Position{ position.x + 100, position.y + 50 }
+                    Position3d{ position.x + 0.5f, position.y, position.z }
                 );
+                entity.set(engine::DisableFor::seconds(0.15));
             }
         });
 }

@@ -12,13 +12,19 @@ struct Timer {
     float duration;
 
     bool tick(float delta);
-    static Timer from_seconds(float seconds);
+    static Timer seconds(float seconds);
+};
+
+struct DisableFor {
+    Timer timer;
+
+    static DisableFor seconds(float seconds);
 };
 
 struct DespawnIn {
     Timer timer;
 
-    static DespawnIn from_seconds(float seconds);
+    static DespawnIn seconds(float seconds);
 };
 
 } // namespace engine
