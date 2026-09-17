@@ -42,6 +42,7 @@ Color Color::green() { return Color{ 0, 255, 0, 255 }; }
 Color Color::red() { return Color{ 255, 0, 0, 255 }; }
 Color Color::blue() { return Color{ 0, 0, 255, 255 }; }
 Color Color::lblue() { return Color{ 100, 100, 255, 255 }; }
+Color Color::brown() { return Color{ 139, 69, 19, 255 }; }
 
 Cuboid Cuboid::splat(float value) { return Cuboid{ value, value, value }; }
 
@@ -94,9 +95,9 @@ void rendering::import() {
             }
 
             constexpr std::array scancodes{
-                SDL_SCANCODE_A,  SDL_SCANCODE_D,    SDL_SCANCODE_W,
-                SDL_SCANCODE_S,  SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT,
-                SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_SPACE,
+                SDL_SCANCODE_A,     SDL_SCANCODE_D,  SDL_SCANCODE_W,    SDL_SCANCODE_S,
+                SDL_SCANCODE_Q,     SDL_SCANCODE_Z,  SDL_SCANCODE_E,    SDL_SCANCODE_LEFT,
+                SDL_SCANCODE_RIGHT, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_SPACE,
             };
             const bool *state = SDL_GetKeyboardState(nullptr);
             for (std::size_t index = 0; index < scancodes.size(); ++index) {

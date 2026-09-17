@@ -15,6 +15,7 @@ struct Color {
     static Color red();
     static Color blue();
     static Color lblue();
+    static Color brown();
 };
 
 struct Cuboid {
@@ -80,6 +81,9 @@ enum class Key : uint8_t {
     D,
     W,
     S,
+    Q,
+    Z,
+    E,
     Left,
     Right,
     Up,
