@@ -4,12 +4,47 @@
 #include "siecs.h"
 #include <siecs_spatial.h>
 
+#include <cmath>
+
 namespace rtype {
 
 void gameplay::import() {
     ecs::component<Player>();
+    ecs::component<CameraController>();
     ecs::component<Gun>();
     ecs::component<MoveInput>().with<Velocity3d>();
+
+    ecs::system("CameraController")
+        .phase(EcsPreUpdate)
+        .each([](const CameraController &,
+                 Position3d &position,
+                 Rotation3d &rotation,
+                 ecs::res<const engine::Keyboard> keyboard,
+                 ecs::res<const DeltaTime> delta) {
+            constexpr float move_speed = 8.0f;
+            constexpr float rotation_speed = 1.5f;
+
+            const float forward = static_cast<float>(keyboard->down(engine::Key::W)) -
+                                  static_cast<float>(keyboard->down(engine::Key::S));
+            const float strafe = static_cast<float>(keyboard->down(engine::Key::D)) -
+                                 static_cast<float>(keyboard->down(engine::Key::A));
+            const float vertical = static_cast<float>(keyboard->down(engine::Key::E)) -
+                                   static_cast<float>(keyboard->down(engine::Key::Q));
+            const float yaw = rotation.y;
+            const float sin_yaw = std::sin(yaw);
+            const float cos_yaw = std::cos(yaw);
+
+            position.x += (forward * sin_yaw + strafe * cos_yaw) * move_speed * delta->value;
+            position.y += vertical * move_speed * delta->value;
+            position.z += (forward * cos_yaw - strafe * sin_yaw) * move_speed * delta->value;
+
+            rotation.y += (static_cast<float>(keyboard->down(engine::Key::Right)) -
+                           static_cast<float>(keyboard->down(engine::Key::Left))) *
+                          rotation_speed * delta->value;
+            rotation.x += (static_cast<float>(keyboard->down(engine::Key::Down)) -
+                           static_cast<float>(keyboard->down(engine::Key::Up))) *
+                          rotation_speed * delta->value;
+        });
 
     ecs::system("IntegrateVelocity")
         .each(

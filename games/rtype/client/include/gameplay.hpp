@@ -6,6 +6,8 @@ namespace rtype {
 
 struct Player {};
 
+struct CameraController {};
+
 struct Gun {
     engine::Key key = engine::Key::Space;
 };
