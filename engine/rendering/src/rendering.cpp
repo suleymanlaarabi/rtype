@@ -13,6 +13,8 @@ namespace engine {
 
 namespace {
 
+constexpr int default_multisampling = 4;
+
 sigpu_color_t to_sigpu(Color color) { return { color.r, color.g, color.b, color.a }; }
 
 void set_sky(const Sky &sky) { sigpu_sky(to_sigpu(sky.color)); }
@@ -25,10 +27,7 @@ void set_ambient(const AmbientLight &ambient) {
 
 void set_fog(const Fog &fog) { sigpu_fog(to_sigpu(fog.color), fog.start, fog.end); }
 
-void set_shadows(const Shadows &shadows) {
-    sigpu_shadows(shadows.enabled);
-    sigpu_shadow_distance(shadows.distance);
-}
+void set_shadows(const Shadows &shadows) { sigpu_shadows(shadows.enabled, shadows.distance); }
 
 void set_multisampling(const Multisampling &multisampling) { sigpu_msaa(multisampling.samples); }
 
@@ -65,7 +64,7 @@ void rendering::import() {
         }
     );
     const auto &window = ecs::resource<const WindowConfig>();
-    sigpu_init(window.title, window.width, window.height);
+    sigpu_init(window.title, window.width, window.height, default_multisampling);
 
     ecs::resource_handle<Sky>({ .on_set = set_sky }).set(Sky{ Color{ 13, 13, 20, 255 } });
     ecs::resource_handle<Sun>({ .on_set = set_sun })
@@ -83,7 +82,8 @@ void rendering::import() {
     ecs::resource_handle<Fog>({ .on_set = set_fog })
         .set(Fog{ Color{ 13, 13, 20, 255 }, 0.0f, 0.0f });
     ecs::resource_handle<Shadows>({ .on_set = set_shadows }).set(Shadows{ false, 35.0f });
-    ecs::resource_handle<Multisampling>({ .on_set = set_multisampling }).set(Multisampling{ 4 });
+    ecs::resource_handle<Multisampling>({ .on_set = set_multisampling })
+        .set(Multisampling{ default_multisampling });
     ecs::resource_handle<BloomSettings>({ .on_set = set_bloom })
         .set(BloomSettings{ true, 0.0f, 1.0f });
     ecs::set_resource(Keyboard{});
