@@ -51,6 +51,7 @@ void gameplay::import() {
             [](Position3d &position, const Velocity3d &velocity, ecs::res<const DeltaTime> delta) {
                 position.x += velocity.x * delta->value;
                 position.y += velocity.y * delta->value;
+                position.z += velocity.z * delta->value;
             }
         );
 
@@ -77,12 +78,12 @@ void gameplay::import() {
         });
 
     auto bullet = ecs::entity::create()
+                      .add<Velocity3d>()
                       .set(
-                          Velocity3d(12.0f, 0.0f),
-                          engine::Cuboid::splat(0.2f),
-                          engine::Color::green(),
+                          engine::Cuboid::splat(0.15f),
+                          engine::Color::yellow(),
                           engine::Bloom{ 2.0f },
-                          engine::DespawnIn::seconds(1)
+                          engine::DespawnIn::seconds(6)
                       )
                       .abstract();
 
@@ -92,11 +93,29 @@ void gameplay::import() {
                   ecs::entity entity,
                   const Gun &gun,
                   const GlobalPosition3d &position,
+                  const GlobalRotation3d &rotation,
                   ecs::res<const engine::Keyboard> keyboard
               ) {
             if (keyboard->down(gun.key)) {
+                const float sin_y = std::sin(rotation.y);
+                const float cos_y = std::cos(rotation.y);
+                const float sin_z = std::sin(rotation.z);
+                const float cos_z = std::cos(rotation.z);
+                const float forward_x = cos_z * cos_y;
+                const float forward_y = sin_z * cos_y;
+                const float forward_z = -sin_y;
+
                 ecs::entity::instantiate(bullet).set(
-                    Position3d{ position.x + 0.5f, position.y, position.z }
+                    Velocity3d{
+                        40.0f * forward_x,
+                        40.0f * forward_y,
+                        40.0f * forward_z,
+                    },
+                    Position3d{
+                        position.x + 0.5f * forward_x,
+                        position.y + 0.5f * forward_y,
+                        position.z + 0.5f * forward_z,
+                    }
                 );
                 entity.set(engine::DisableFor::seconds(0.15));
             }

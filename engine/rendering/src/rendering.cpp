@@ -38,11 +38,13 @@ void set_bloom(const BloomSettings &bloom) {
 
 } // namespace
 
+Color Color::yellow() { return Color{ 255, 255, 0, 255 }; }
 Color Color::green() { return Color{ 0, 255, 0, 255 }; }
 Color Color::red() { return Color{ 255, 0, 0, 255 }; }
 Color Color::blue() { return Color{ 0, 0, 255, 255 }; }
 Color Color::lblue() { return Color{ 100, 100, 255, 255 }; }
 Color Color::brown() { return Color{ 139, 69, 19, 255 }; }
+Color Color::gray() { return Color{ 128, 128, 128, 255 }; }
 
 Cuboid Cuboid::splat(float value) { return Cuboid{ value, value, value }; }
 

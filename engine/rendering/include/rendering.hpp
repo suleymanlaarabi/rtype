@@ -16,6 +16,8 @@ struct Color {
     static Color blue();
     static Color lblue();
     static Color brown();
+    static Color yellow();
+    static Color gray();
 };
 
 struct Cuboid {
