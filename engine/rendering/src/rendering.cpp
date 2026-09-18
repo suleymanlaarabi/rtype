@@ -148,12 +148,19 @@ void render_shared_cuboids(
         }
 
         if (rotation.x == 0.0f && rotation.y == 0.0f && rotation.z == 0.0f) {
+            if (g_sigpu.shared_axis_count + g_sigpu.owned_axis_count == g_sigpu.axis_capacity) {
+                sigpu_axis_instances_grow();
+            }
             auto *instances = static_cast<sigpu_shared_axis_instance_t *>(g_sigpu.axis_mapped);
             auto &instance = instances[g_sigpu.shared_axis_count++];
             instance = { position.x, position.y, position.z, scale.x, scale.y, scale.z };
             continue;
         }
 
+        if (g_sigpu.shared_rotated_count + g_sigpu.owned_rotated_count ==
+            g_sigpu.rotated_capacity) {
+            sigpu_rotated_instances_grow();
+        }
         auto *instances = static_cast<sigpu_shared_rotated_instance_t *>(g_sigpu.rotated_mapped);
         auto &instance = instances[g_sigpu.shared_rotated_count++];
         const auto packed = pack_rotation(rotation);
@@ -210,6 +217,9 @@ void render_owned_cuboids(
         g_sigpu.any_bloom = g_sigpu.any_bloom || bloom > 0.0f;
 
         if (rotation.x == 0.0f && rotation.y == 0.0f && rotation.z == 0.0f) {
+            if (g_sigpu.shared_axis_count + g_sigpu.owned_axis_count == g_sigpu.axis_capacity) {
+                sigpu_axis_instances_grow();
+            }
             auto *instances = static_cast<sigpu_axis_instance_t *>(g_sigpu.axis_mapped);
             auto &instance = instances[g_sigpu.axis_capacity - ++g_sigpu.owned_axis_count];
             instance.x = position.x;
@@ -226,6 +236,10 @@ void render_owned_cuboids(
             continue;
         }
 
+        if (g_sigpu.shared_rotated_count + g_sigpu.owned_rotated_count ==
+            g_sigpu.rotated_capacity) {
+            sigpu_rotated_instances_grow();
+        }
         auto *instances = static_cast<sigpu_rotated_instance_t *>(g_sigpu.rotated_mapped);
         auto &instance = instances[g_sigpu.rotated_capacity - ++g_sigpu.owned_rotated_count];
         const auto packed = pack_rotation(rotation);
@@ -392,7 +406,6 @@ void rendering::import() {
     ecs::component<Color>(ecs::component_options<Color>{
         .inheritance = EcsInheritShared,
     });
-
     ecs::component<Cuboid>(ecs::component_options<Cuboid>{
         .inheritance = EcsInheritShared,
     });

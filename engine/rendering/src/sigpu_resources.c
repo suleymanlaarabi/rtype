@@ -96,6 +96,40 @@ static void resize_instances(
     );
 }
 
+static void grow_instances(
+    SDL_GPUBuffer **buffer,
+    SDL_GPUTransferBuffer **transfer,
+    void **mapped,
+    Uint32 *capacity,
+    Uint32 shared_stride,
+    Uint32 shared_count,
+    Uint32 owned_stride,
+    Uint32 owned_count
+) {
+    const Uint32 old_capacity = *capacity;
+    const Uint32 new_capacity = old_capacity * 2;
+    SDL_GPUBuffer *old_buffer = *buffer;
+    SDL_GPUTransferBuffer *old_transfer = *transfer;
+    void *old_mapped = *mapped;
+
+    *buffer = NULL;
+    *transfer = NULL;
+    resize_instances(buffer, transfer, new_capacity, owned_stride);
+    *mapped = SDL_MapGPUTransferBuffer(g_sigpu.device, *transfer, true);
+
+    memcpy(*mapped, old_mapped, shared_count * shared_stride);
+    memcpy(
+        (uint8_t *)*mapped + (new_capacity - owned_count) * owned_stride,
+        (uint8_t *)old_mapped + (old_capacity - owned_count) * owned_stride,
+        owned_count * owned_stride
+    );
+
+    SDL_UnmapGPUTransferBuffer(g_sigpu.device, old_transfer);
+    SDL_ReleaseGPUBuffer(g_sigpu.device, old_buffer);
+    SDL_ReleaseGPUTransferBuffer(g_sigpu.device, old_transfer);
+    *capacity = new_capacity;
+}
+
 static void resize_axis_instances(Uint32 capacity) {
     resize_instances(
         &g_sigpu.axis_buffer,
@@ -295,6 +329,32 @@ void sigpu_resources_destroy(void) {
     SDL_ReleaseGPUTransferBuffer(g_sigpu.device, g_sigpu.axis_transfer);
     SDL_ReleaseGPUTransferBuffer(g_sigpu.device, g_sigpu.rotated_transfer);
     release_frame_targets();
+}
+
+void sigpu_axis_instances_grow(void) {
+    grow_instances(
+        &g_sigpu.axis_buffer,
+        &g_sigpu.axis_transfer,
+        &g_sigpu.axis_mapped,
+        &g_sigpu.axis_capacity,
+        sizeof(sigpu_shared_axis_instance_t),
+        g_sigpu.shared_axis_count,
+        sizeof(sigpu_axis_instance_t),
+        g_sigpu.owned_axis_count
+    );
+}
+
+void sigpu_rotated_instances_grow(void) {
+    grow_instances(
+        &g_sigpu.rotated_buffer,
+        &g_sigpu.rotated_transfer,
+        &g_sigpu.rotated_mapped,
+        &g_sigpu.rotated_capacity,
+        sizeof(sigpu_shared_rotated_instance_t),
+        g_sigpu.shared_rotated_count,
+        sizeof(sigpu_rotated_instance_t),
+        g_sigpu.owned_rotated_count
+    );
 }
 
 void sigpu_frame_targets_prepare(void) { ensure_frame_targets(); }

@@ -288,6 +288,8 @@ void sigpu_main_pipelines_recreate(void);
 
 void sigpu_resources_create(int samples);
 void sigpu_resources_destroy(void);
+void sigpu_axis_instances_grow(void);
+void sigpu_rotated_instances_grow(void);
 void sigpu_frame_targets_prepare(void);
 void sigpu_sample_count_set(int samples);
 
