@@ -94,21 +94,12 @@ struct packed_rotation {
     int16_t w;
 };
 
-packed_rotation pack_rotation(const GlobalRotation3d &rotation) {
-    const float half_x = rotation.x * 0.5f;
-    const float half_y = rotation.y * 0.5f;
-    const float half_z = rotation.z * 0.5f;
-    const float sx = std::sin(half_x);
-    const float cx = std::cos(half_x);
-    const float sy = std::sin(half_y);
-    const float cy = std::cos(half_y);
-    const float sz = std::sin(half_z);
-    const float cz = std::cos(half_z);
+packed_rotation pack_rotation(const GlobalOrientation3d &orientation) {
     return {
-        static_cast<int16_t>(std::round((sx * cy * cz - cx * sy * sz) * 32767.0f)),
-        static_cast<int16_t>(std::round((cx * sy * cz + sx * cy * sz) * 32767.0f)),
-        static_cast<int16_t>(std::round((cx * cy * sz - sx * sy * cz) * 32767.0f)),
-        static_cast<int16_t>(std::round((cx * cy * cz + sx * sy * sz) * 32767.0f)),
+        static_cast<int16_t>(std::round(orientation.x * 32767.0f)),
+        static_cast<int16_t>(std::round(orientation.y * 32767.0f)),
+        static_cast<int16_t>(std::round(orientation.z * 32767.0f)),
+        static_cast<int16_t>(std::round(orientation.w * 32767.0f)),
     };
 }
 
@@ -150,7 +141,7 @@ sigpu_axis_instance_t make_owned_axis(
 
 sigpu_rotated_instance_t make_owned_rotated(
     const GlobalPosition3d &position,
-    const GlobalRotation3d &rotation,
+    const GlobalOrientation3d &rotation,
     float width,
     float height,
     float depth,
@@ -213,7 +204,7 @@ void record_batch(
 void render_shared_cuboids(
     ecs_iter_t *it,
     table_field<const GlobalPosition3d> positions,
-    table_field<const GlobalRotation3d> rotations,
+    table_field<const GlobalOrientation3d> rotations,
     table_field<const GlobalScale3d> scales,
     table_field<const Cuboid> cuboids,
     table_field<const Color> colors,
@@ -238,7 +229,7 @@ void render_shared_cuboids(
             continue;
         }
 
-        if (rotation.x == 0.0f && rotation.y == 0.0f && rotation.z == 0.0f) {
+        if (rotation.x == 0.0f && rotation.y == 0.0f && rotation.z == 0.0f && rotation.w == 1.0f) {
             if (g_sigpu.shared_axis_count + g_sigpu.owned_axis_count == g_sigpu.axis_capacity) {
                 sigpu_axis_instances_grow();
             }
@@ -286,7 +277,7 @@ void render_shared_cuboids(
 void render_owned_cuboids(
     ecs_iter_t *it,
     table_field<const GlobalPosition3d> positions,
-    table_field<const GlobalRotation3d> rotations,
+    table_field<const GlobalOrientation3d> rotations,
     table_field<const GlobalScale3d> scales,
     table_field<const Cuboid> cuboids,
     table_field<const Color> colors,
@@ -307,7 +298,7 @@ void render_owned_cuboids(
         const auto &color = colors[index];
         g_sigpu.any_bloom = g_sigpu.any_bloom || bloom > 0.0f;
 
-        if (rotation.x == 0.0f && rotation.y == 0.0f && rotation.z == 0.0f) {
+        if (rotation.x == 0.0f && rotation.y == 0.0f && rotation.z == 0.0f && rotation.w == 1.0f) {
             if (g_sigpu.shared_axis_count + g_sigpu.owned_axis_count == g_sigpu.axis_capacity) {
                 sigpu_axis_instances_grow();
             }
@@ -342,7 +333,7 @@ void collect_static_cuboids(ecs_iter_t *it) {
     }
 
     const auto positions = field<const GlobalPosition3d>(it, 0);
-    const auto rotations = field<const GlobalRotation3d>(it, 1);
+    const auto rotations = field<const GlobalOrientation3d>(it, 1);
     const auto scales = field<const GlobalScale3d>(it, 2);
     const auto cuboids = field<const Cuboid>(it, 3);
     const auto colors = field<const Color>(it, 4);
@@ -358,7 +349,8 @@ void collect_static_cuboids(ecs_iter_t *it) {
         const float height = cuboid.height * scale.y;
         const float depth = cuboid.depth * scale.z;
         const float bloom = blooms.data ? std::fmax(blooms[index].intensity, 0.0f) : 0.0f;
-        const bool rotated = rotation.x != 0.0f || rotation.y != 0.0f || rotation.z != 0.0f;
+        const bool rotated =
+            rotation.x != 0.0f || rotation.y != 0.0f || rotation.z != 0.0f || rotation.w != 1.0f;
         static_item item = {
             .cell_x = static_cast<int32_t>(std::floor(position.x / static_chunk_size)),
             .cell_y = static_cast<int32_t>(std::floor(position.y / static_chunk_size)),
@@ -465,7 +457,7 @@ ecs_system_id_t register_static_cache(ecs_system_id_t camera_system) {
         .query = {
             .components = {
                 { .id = ecs::detail::ecs_cpp_component_id<GlobalPosition3d>(), .access = EcsIn },
-                { .id = ecs::detail::ecs_cpp_component_id<GlobalRotation3d>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<GlobalOrientation3d>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<GlobalScale3d>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<Cuboid>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<Color>(), .access = EcsIn },
@@ -492,7 +484,7 @@ ecs_system_id_t register_static_cache(ecs_system_id_t camera_system) {
 
 void render_cuboids(ecs_iter_t *it) {
     const auto positions = field<const GlobalPosition3d>(it, 0);
-    const auto rotations = field<const GlobalRotation3d>(it, 1);
+    const auto rotations = field<const GlobalOrientation3d>(it, 1);
     const auto scales = field<const GlobalScale3d>(it, 2);
     const auto cuboids = field<const Cuboid>(it, 3);
     const auto colors = field<const Color>(it, 4);
@@ -528,7 +520,7 @@ void register_render_cuboids() {
         .query = {
             .components = {
                 { .id = ecs::detail::ecs_cpp_component_id<GlobalPosition3d>(), .access = EcsIn },
-                { .id = ecs::detail::ecs_cpp_component_id<GlobalRotation3d>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<GlobalOrientation3d>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<GlobalScale3d>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<Cuboid>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<Color>(), .access = EcsIn },
@@ -717,6 +709,7 @@ void rendering::import() {
                 SDL_SCANCODE_A,     SDL_SCANCODE_D,  SDL_SCANCODE_W,    SDL_SCANCODE_S,
                 SDL_SCANCODE_Q,     SDL_SCANCODE_Z,  SDL_SCANCODE_E,    SDL_SCANCODE_LEFT,
                 SDL_SCANCODE_RIGHT, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_SPACE,
+                SDL_SCANCODE_I,
             };
             const bool *state = SDL_GetKeyboardState(nullptr);
             for (std::size_t index = 0; index < scancodes.size(); ++index) {
@@ -724,37 +717,29 @@ void rendering::import() {
             }
         });
 
-    const ecs_system_id_t update_camera =
-        ecs::system("UpdateCamera")
-            .phase(EcsPreRender)
-            .immediate()
-            .each([](const GlobalPosition3d &position,
-                     const GlobalRotation3d &rotation,
-                     const Camera &camera) {
-                const float sin_x = std::sin(rotation.x);
-                const float cos_x = std::cos(rotation.x);
-                const float sin_y = std::sin(rotation.y);
-                const float cos_y = std::cos(rotation.y);
-                const float sin_z = std::sin(rotation.z);
-                const float cos_z = std::cos(rotation.z);
-                const float forward_x = cos_z * sin_y * cos_x + sin_z * sin_x;
-                const float forward_y = sin_z * sin_y * cos_x - cos_z * sin_x;
-                const float forward_z = cos_y * cos_x;
+    const ecs_system_id_t update_camera = ecs::system("UpdateCamera")
+                                              .phase(EcsPreRender)
+                                              .immediate()
+                                              .each([](const GlobalPosition3d &position,
+                                                       const GlobalOrientation3d &orientation,
+                                                       const Camera &camera) {
+                                                  const Direction3d forward =
+                                                      sispatial_forward_3d(&orientation);
 
-                sigpu_camera(
-                    position.x,
-                    position.y,
-                    position.z,
-                    position.x + forward_x,
-                    position.y + forward_y,
-                    position.z + forward_z,
-                    camera.fov
-                );
-                sigpu_view_prepare(
-                    static_cast<float>(g_sigpu.frame_width) /
-                    static_cast<float>(g_sigpu.frame_height)
-                );
-            });
+                                                  sigpu_camera(
+                                                      position.x,
+                                                      position.y,
+                                                      position.z,
+                                                      position.x + forward.x,
+                                                      position.y + forward.y,
+                                                      position.z + forward.z,
+                                                      camera.fov
+                                                  );
+                                                  sigpu_view_prepare(
+                                                      static_cast<float>(g_sigpu.frame_width) /
+                                                      static_cast<float>(g_sigpu.frame_height)
+                                                  );
+                                              });
 
     const ecs_system_id_t static_cache_system = register_static_cache(update_camera);
     register_shadow_bounds(static_cache_system);

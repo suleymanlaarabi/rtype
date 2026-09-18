@@ -91,6 +91,7 @@ enum class Key : uint8_t {
     Up,
     Down,
     Space,
+    I,
     Count,
 };
 

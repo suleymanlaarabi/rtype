@@ -24,13 +24,13 @@ void gameplay::import() {
             constexpr float move_speed = 8.0f;
             constexpr float rotation_speed = 1.5f;
 
-            const float forward = static_cast<float>(keyboard->down(engine::Key::W)) -
-                                  static_cast<float>(keyboard->down(engine::Key::S));
-            const float strafe = static_cast<float>(keyboard->down(engine::Key::D)) -
-                                 static_cast<float>(keyboard->down(engine::Key::A));
+            const float forward = static_cast<float>(keyboard->down(engine::Key::S)) -
+                                  static_cast<float>(keyboard->down(engine::Key::W));
+            const float strafe = static_cast<float>(keyboard->down(engine::Key::A)) -
+                                 static_cast<float>(keyboard->down(engine::Key::D));
             const float vertical = static_cast<float>(keyboard->down(engine::Key::E)) -
                                    static_cast<float>(keyboard->down(engine::Key::Q));
-            const float yaw = rotation.y;
+            const float yaw = rotation.yaw;
             const float sin_yaw = std::sin(yaw);
             const float cos_yaw = std::cos(yaw);
 
@@ -38,12 +38,12 @@ void gameplay::import() {
             position.y += vertical * move_speed * delta->value;
             position.z += (forward * cos_yaw - strafe * sin_yaw) * move_speed * delta->value;
 
-            rotation.y += (static_cast<float>(keyboard->down(engine::Key::Right)) -
-                           static_cast<float>(keyboard->down(engine::Key::Left))) *
-                          rotation_speed * delta->value;
-            rotation.x += (static_cast<float>(keyboard->down(engine::Key::Down)) -
-                           static_cast<float>(keyboard->down(engine::Key::Up))) *
-                          rotation_speed * delta->value;
+            rotation.yaw += (static_cast<float>(keyboard->down(engine::Key::Right)) -
+                             static_cast<float>(keyboard->down(engine::Key::Left))) *
+                            rotation_speed * delta->value;
+            rotation.pitch -= (static_cast<float>(keyboard->down(engine::Key::Down)) -
+                               static_cast<float>(keyboard->down(engine::Key::Up))) *
+                              rotation_speed * delta->value;
         });
 
     ecs::system("Move")
@@ -79,33 +79,27 @@ void gameplay::import() {
                       .abstract();
 
     ecs::system("SpawnProjectile")
-        .phase(EcsOnUpdate)
+        .phase(EcsPostUpdate)
         .each([bullet](
                   ecs::entity entity,
                   const Gun &gun,
                   const GlobalPosition3d &position,
-                  const GlobalRotation3d &rotation,
+                  const GlobalOrientation3d &orientation,
                   ecs::res<const engine::Keyboard> keyboard
               ) {
             if (keyboard->down(gun.key)) {
-                const float sin_y = std::sin(rotation.y);
-                const float cos_y = std::cos(rotation.y);
-                const float sin_z = std::sin(rotation.z);
-                const float cos_z = std::cos(rotation.z);
-                const float forward_x = cos_z * cos_y;
-                const float forward_y = sin_z * cos_y;
-                const float forward_z = -sin_y;
+                const Direction3d forward = sispatial_forward_3d(&orientation);
 
                 ecs::entity::instantiate(bullet).set(
                     Velocity3d{
-                        40.0f * forward_x,
-                        40.0f * forward_y,
-                        40.0f * forward_z,
+                        40.0f * forward.x,
+                        40.0f * forward.y,
+                        40.0f * forward.z,
                     },
                     Position3d{
-                        position.x + 0.5f * forward_x,
-                        position.y + 0.5f * forward_y,
-                        position.z + 0.5f * forward_z,
+                        position.x + 0.5f * forward.x,
+                        position.y + 0.5f * forward.y,
+                        position.z + 0.5f * forward.z,
                     }
                 );
                 entity.set(engine::DisableFor::seconds(0.15));
