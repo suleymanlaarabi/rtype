@@ -10,7 +10,7 @@
 #define SIGPU_AXIS_CAPACITY 262144
 #define SIGPU_ROTATED_CAPACITY 32768
 #define SIGPU_SHADOW_SIZE 2048
-#define SIGPU_HDR_FORMAT SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT
+#define SIGPU_HDR_FORMAT SDL_GPU_TEXTUREFORMAT_R11G11B10_UFLOAT
 #define SIGPU_PI 3.14159265358979323846f
 #define SIGPU_SHADER(name) SIGPU_SHADER_DIR "/" name
 
@@ -100,6 +100,27 @@ typedef struct {
 } sigpu_shared_batch_t;
 
 typedef struct {
+    sigpu_vec3_t center;
+    float radius;
+    Uint32 axis_first;
+    Uint32 axis_count;
+    Uint32 rotated_first;
+    Uint32 rotated_count;
+    bool bloom;
+    bool camera_visible;
+    bool shadow_visible;
+} sigpu_static_chunk_t;
+
+typedef struct {
+    const sigpu_axis_instance_t *axis;
+    Uint32 axis_count;
+    const sigpu_rotated_instance_t *rotated;
+    Uint32 rotated_count;
+    const sigpu_static_chunk_t *chunks;
+    Uint32 chunk_count;
+} sigpu_static_upload_t;
+
+typedef struct {
     sigpu_vec3_t position;
     sigpu_vec3_t target;
     float fov;
@@ -146,6 +167,8 @@ typedef struct {
     SDL_GPUBuffer *index_buffer;
     SDL_GPUBuffer *axis_buffer;
     SDL_GPUBuffer *rotated_buffer;
+    SDL_GPUBuffer *static_axis_buffer;
+    SDL_GPUBuffer *static_rotated_buffer;
     SDL_GPUTransferBuffer *axis_transfer;
     SDL_GPUTransferBuffer *rotated_transfer;
 
@@ -166,6 +189,7 @@ typedef struct {
     void *rotated_mapped;
     sigpu_shared_batch_t *shared_axis_batches;
     sigpu_shared_batch_t *shared_rotated_batches;
+    sigpu_static_chunk_t *static_chunks;
     Uint32 shared_axis_count;
     Uint32 shared_rotated_count;
     Uint32 owned_axis_count;
@@ -176,6 +200,8 @@ typedef struct {
     Uint32 shared_rotated_batch_capacity;
     Uint32 axis_capacity;
     Uint32 rotated_capacity;
+    Uint32 static_chunk_count;
+    Uint32 static_shadow_visible_count;
 
     Uint32 frame_width;
     Uint32 frame_height;
@@ -290,6 +316,9 @@ void sigpu_resources_create(int samples);
 void sigpu_resources_destroy(void);
 void sigpu_axis_instances_grow(void);
 void sigpu_rotated_instances_grow(void);
+void sigpu_static_upload(const sigpu_static_upload_t *upload);
+void sigpu_static_shadow_bounds_extend(void);
+void sigpu_static_cull(float aspect);
 void sigpu_frame_targets_prepare(void);
 void sigpu_sample_count_set(int samples);
 

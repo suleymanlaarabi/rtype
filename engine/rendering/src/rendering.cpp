@@ -6,16 +6,50 @@
 #include <siecs_spatial.h>
 #include <sireflect.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
+#include <limits>
+#include <tuple>
+#include <vector>
 
 namespace engine {
 
 namespace {
 
 constexpr int default_multisampling = 4;
+// Static renderables are immutable after their first PreRender snapshot.
+constexpr float static_chunk_size = 64.0f;
 static_assert(sizeof(sigpu_shared_axis_instance_t) == 24);
 static_assert(sizeof(sigpu_shared_rotated_instance_t) == 32);
+
+enum class static_instance_kind : uint8_t {
+    Axis,
+    Rotated,
+};
+
+union static_instance {
+    sigpu_axis_instance_t axis;
+    sigpu_rotated_instance_t rotated;
+};
+
+struct static_item {
+    int32_t cell_x;
+    int32_t cell_y;
+    int32_t cell_z;
+    float x;
+    float y;
+    float z;
+    float radius;
+    static_instance_kind kind;
+    static_instance instance;
+};
+
+std::vector<static_item> static_items;
+bool static_cache_ready;
+ecs_system_id_t static_collect_system;
+ecs_system_id_t static_finish_system;
 
 constexpr sireflect_enum_desc_t engine_key_reflection = {
     .name = "EngineKey",
@@ -78,6 +112,71 @@ packed_rotation pack_rotation(const GlobalRotation3d &rotation) {
     };
 }
 
+sigpu_shared_material_t
+make_shared_material(const Cuboid &cuboid, const Color &color, float bloom) {
+    return {
+        .size_bloom = { cuboid.width, cuboid.height, cuboid.depth, bloom },
+        .color = {
+            g_sigpu.linear_lut[color.r] / 255.0f,
+            g_sigpu.linear_lut[color.g] / 255.0f,
+            g_sigpu.linear_lut[color.b] / 255.0f,
+            color.a / 255.0f,
+        },
+    };
+}
+
+sigpu_axis_instance_t make_owned_axis(
+    const GlobalPosition3d &position,
+    float width,
+    float height,
+    float depth,
+    const Color &color,
+    float bloom
+) {
+    return {
+        position.x,
+        position.y,
+        position.z,
+        width,
+        height,
+        depth,
+        g_sigpu.linear_lut[color.r],
+        g_sigpu.linear_lut[color.g],
+        g_sigpu.linear_lut[color.b],
+        color.a,
+        bloom,
+    };
+}
+
+sigpu_rotated_instance_t make_owned_rotated(
+    const GlobalPosition3d &position,
+    const GlobalRotation3d &rotation,
+    float width,
+    float height,
+    float depth,
+    const Color &color,
+    float bloom
+) {
+    const auto packed = pack_rotation(rotation);
+    return {
+        position.x,
+        position.y,
+        position.z,
+        width,
+        height,
+        depth,
+        packed.x,
+        packed.y,
+        packed.z,
+        packed.w,
+        g_sigpu.linear_lut[color.r],
+        g_sigpu.linear_lut[color.g],
+        g_sigpu.linear_lut[color.b],
+        color.a,
+        bloom,
+    };
+}
+
 bool visible(
     const GlobalPosition3d &position,
     float width,
@@ -124,15 +223,7 @@ void render_shared_cuboids(
     const auto &cuboid = cuboids[0];
     const auto &color = colors[0];
     const float bloom = blooms.data ? std::fmax(blooms[0].intensity, 0.0f) : 0.0f;
-    const sigpu_shared_material_t material = {
-        .size_bloom = { cuboid.width, cuboid.height, cuboid.depth, bloom },
-        .color = {
-            g_sigpu.linear_lut[color.r] / 255.0f,
-            g_sigpu.linear_lut[color.g] / 255.0f,
-            g_sigpu.linear_lut[color.b] / 255.0f,
-            color.a / 255.0f,
-        },
-    };
+    const sigpu_shared_material_t material = make_shared_material(cuboid, color, bloom);
     const Uint32 first_axis = g_sigpu.shared_axis_count;
     const Uint32 first_rotated = g_sigpu.shared_rotated_count;
 
@@ -222,17 +313,7 @@ void render_owned_cuboids(
             }
             auto *instances = static_cast<sigpu_axis_instance_t *>(g_sigpu.axis_mapped);
             auto &instance = instances[g_sigpu.axis_capacity - ++g_sigpu.owned_axis_count];
-            instance.x = position.x;
-            instance.y = position.y;
-            instance.z = position.z;
-            instance.width = width;
-            instance.height = height;
-            instance.depth = depth;
-            instance.r = g_sigpu.linear_lut[color.r];
-            instance.g = g_sigpu.linear_lut[color.g];
-            instance.b = g_sigpu.linear_lut[color.b];
-            instance.a = color.a;
-            instance.bloom = bloom;
+            instance = make_owned_axis(position, width, height, depth, color, bloom);
             continue;
         }
 
@@ -242,23 +323,171 @@ void render_owned_cuboids(
         }
         auto *instances = static_cast<sigpu_rotated_instance_t *>(g_sigpu.rotated_mapped);
         auto &instance = instances[g_sigpu.rotated_capacity - ++g_sigpu.owned_rotated_count];
-        const auto packed = pack_rotation(rotation);
-        instance.x = position.x;
-        instance.y = position.y;
-        instance.z = position.z;
-        instance.width = width;
-        instance.height = height;
-        instance.depth = depth;
-        instance.qx = packed.x;
-        instance.qy = packed.y;
-        instance.qz = packed.z;
-        instance.qw = packed.w;
-        instance.r = g_sigpu.linear_lut[color.r];
-        instance.g = g_sigpu.linear_lut[color.g];
-        instance.b = g_sigpu.linear_lut[color.b];
-        instance.a = color.a;
-        instance.bloom = bloom;
+        instance = make_owned_rotated(position, rotation, width, height, depth, color, bloom);
     }
+}
+
+bool static_item_less(const static_item &left, const static_item &right) {
+    const auto left_cell = std::tie(left.cell_x, left.cell_y, left.cell_z);
+    const auto right_cell = std::tie(right.cell_x, right.cell_y, right.cell_z);
+    if (left_cell != right_cell) {
+        return left_cell < right_cell;
+    }
+    return left.kind < right.kind;
+}
+
+void collect_static_cuboids(ecs_iter_t *it) {
+    if (static_cache_ready) {
+        return;
+    }
+
+    const auto positions = field<const GlobalPosition3d>(it, 0);
+    const auto rotations = field<const GlobalRotation3d>(it, 1);
+    const auto scales = field<const GlobalScale3d>(it, 2);
+    const auto cuboids = field<const Cuboid>(it, 3);
+    const auto colors = field<const Color>(it, 4);
+    const auto blooms = field<const Bloom>(it, 5);
+
+    for (uint32_t index = 0; index < it->count; index++) {
+        const auto &position = positions[index];
+        const auto &rotation = rotations[index];
+        const auto &scale = scales[index];
+        const auto &cuboid = cuboids[index];
+        const auto &color = colors[index];
+        const float width = cuboid.width * scale.x;
+        const float height = cuboid.height * scale.y;
+        const float depth = cuboid.depth * scale.z;
+        const float bloom = blooms.data ? std::fmax(blooms[index].intensity, 0.0f) : 0.0f;
+        const bool rotated = rotation.x != 0.0f || rotation.y != 0.0f || rotation.z != 0.0f;
+        static_item item = {
+            .cell_x = static_cast<int32_t>(std::floor(position.x / static_chunk_size)),
+            .cell_y = static_cast<int32_t>(std::floor(position.y / static_chunk_size)),
+            .cell_z = static_cast<int32_t>(std::floor(position.z / static_chunk_size)),
+            .x = position.x,
+            .y = position.y,
+            .z = position.z,
+            .radius = 0.5f * std::sqrt(width * width + height * height + depth * depth),
+        };
+
+        if (rotated) {
+            item.kind = static_instance_kind::Rotated;
+            item.instance.rotated =
+                make_owned_rotated(position, rotation, width, height, depth, color, bloom);
+        } else {
+            item.kind = static_instance_kind::Axis;
+            item.instance.axis = make_owned_axis(position, width, height, depth, color, bloom);
+        }
+        static_items.push_back(item);
+    }
+}
+
+void finish_static_cache(ecs_iter_t *) {
+    if (static_cache_ready) {
+        return;
+    }
+
+    std::sort(static_items.begin(), static_items.end(), static_item_less);
+    std::vector<sigpu_axis_instance_t> axis;
+    std::vector<sigpu_rotated_instance_t> rotated;
+    std::vector<sigpu_static_chunk_t> chunks;
+
+    std::size_t first = 0;
+    while (first < static_items.size()) {
+        std::size_t end = first + 1;
+        while (end < static_items.size() &&
+               static_items[end].cell_x == static_items[first].cell_x &&
+               static_items[end].cell_y == static_items[first].cell_y &&
+               static_items[end].cell_z == static_items[first].cell_z) {
+            end++;
+        }
+
+        sigpu_static_chunk_t chunk = {
+            .axis_first = static_cast<Uint32>(axis.size()),
+            .rotated_first = static_cast<Uint32>(rotated.size()),
+        };
+        float min_x = std::numeric_limits<float>::infinity();
+        float min_y = min_x;
+        float min_z = min_x;
+        float max_x = -min_x;
+        float max_y = -min_x;
+        float max_z = -min_x;
+
+        for (std::size_t index = first; index < end; index++) {
+            const static_item &item = static_items[index];
+            min_x = std::fmin(min_x, item.x - item.radius);
+            min_y = std::fmin(min_y, item.y - item.radius);
+            min_z = std::fmin(min_z, item.z - item.radius);
+            max_x = std::fmax(max_x, item.x + item.radius);
+            max_y = std::fmax(max_y, item.y + item.radius);
+            max_z = std::fmax(max_z, item.z + item.radius);
+
+            switch (item.kind) {
+            case static_instance_kind::Axis:
+                axis.push_back(item.instance.axis);
+                chunk.bloom = chunk.bloom || item.instance.axis.bloom > 0.0f;
+                break;
+            case static_instance_kind::Rotated:
+                rotated.push_back(item.instance.rotated);
+                chunk.bloom = chunk.bloom || item.instance.rotated.bloom > 0.0f;
+                break;
+            }
+        }
+
+        chunk.axis_count = static_cast<Uint32>(axis.size()) - chunk.axis_first;
+        chunk.rotated_count = static_cast<Uint32>(rotated.size()) - chunk.rotated_first;
+        chunk.center = { (min_x + max_x) * 0.5f, (min_y + max_y) * 0.5f, (min_z + max_z) * 0.5f };
+        const float half_x = (max_x - min_x) * 0.5f;
+        const float half_y = (max_y - min_y) * 0.5f;
+        const float half_z = (max_z - min_z) * 0.5f;
+        chunk.radius = std::sqrt(half_x * half_x + half_y * half_y + half_z * half_z);
+        chunks.push_back(chunk);
+        first = end;
+    }
+
+    sigpu_static_upload_t upload = {
+        .axis = axis.data(),
+        .axis_count = static_cast<Uint32>(axis.size()),
+        .rotated = rotated.data(),
+        .rotated_count = static_cast<Uint32>(rotated.size()),
+        .chunks = chunks.data(),
+        .chunk_count = static_cast<Uint32>(chunks.size()),
+    };
+    sigpu_static_upload(&upload);
+    std::vector<static_item>().swap(static_items);
+    static_cache_ready = true;
+    ecs_system_disable(static_collect_system);
+    ecs_system_disable(static_finish_system);
+}
+
+ecs_system_id_t register_static_cache(ecs_system_id_t camera_system) {
+    ecs_system_desc_t collect = {
+        .name = "CollectStaticCuboids",
+        .query = {
+            .components = {
+                { .id = ecs::detail::ecs_cpp_component_id<GlobalPosition3d>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<GlobalRotation3d>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<GlobalScale3d>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<Cuboid>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<Color>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<Bloom>(), .access = EcsInOptional },
+                { .id = ecs::detail::ecs_cpp_component_id<Static>(), .access = EcsFilter },
+            },
+        },
+        .callback = collect_static_cuboids,
+        .phase = EcsPreRender,
+        .after = { camera_system },
+        .main_thread_only = true,
+    };
+    static_collect_system = ecs_system_init(&collect);
+    ecs_system_desc_t finish = {
+        .name = "FinishStaticCuboids",
+        .callback = finish_static_cache,
+        .phase = EcsPreRender,
+        .after = { static_collect_system },
+        .main_thread_only = true,
+    };
+    static_finish_system = ecs_system_init(&finish);
+    return static_finish_system;
 }
 
 void render_cuboids(ecs_iter_t *it) {
@@ -280,7 +509,20 @@ void render_cuboids(ecs_iter_t *it) {
     }
 }
 
+void cull_static_cuboids(ecs_iter_t *) {
+    sigpu_static_cull(
+        static_cast<float>(g_sigpu.frame_width) / static_cast<float>(g_sigpu.frame_height)
+    );
+}
+
 void register_render_cuboids() {
+    ecs_system_desc_t cull = {
+        .name = "CullStaticCuboids",
+        .callback = cull_static_cuboids,
+        .phase = EcsOnRender,
+        .main_thread_only = true,
+    };
+    const ecs_system_id_t cull_system = ecs_system_init(&cull);
     ecs_system_desc_t system = {
         .name = "RenderCuboids",
         .query = {
@@ -291,10 +533,12 @@ void register_render_cuboids() {
                 { .id = ecs::detail::ecs_cpp_component_id<Cuboid>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<Color>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<Bloom>(), .access = EcsInOptional },
+                { .id = ecs::detail::ecs_cpp_component_id<Static>(), .access = EcsNot },
             },
         },
         .callback = render_cuboids,
         .phase = EcsOnRender,
+        .after = { cull_system },
         .main_thread_only = true,
     };
     ecs_system_init(&system);
@@ -305,6 +549,12 @@ void begin_shadow_bounds(ecs_iter_t *) {
         sigpu_shadow_bounds_begin(
             static_cast<float>(g_sigpu.frame_width) / static_cast<float>(g_sigpu.frame_height)
         );
+    }
+}
+
+void build_static_shadow_bounds(ecs_iter_t *) {
+    if (g_sigpu.shadows_enabled) {
+        sigpu_static_shadow_bounds_extend();
     }
 }
 
@@ -333,15 +583,23 @@ void end_shadow_bounds(ecs_iter_t *) {
     }
 }
 
-void register_shadow_bounds(ecs_system_id_t camera_system) {
+void register_shadow_bounds(ecs_system_id_t static_cache_system) {
     ecs_system_desc_t begin = {
         .name = "BeginShadowBounds",
         .callback = begin_shadow_bounds,
         .phase = EcsPreRender,
-        .after = { camera_system },
+        .after = { static_cache_system },
         .main_thread_only = true,
     };
     const ecs_system_id_t begin_system = ecs_system_init(&begin);
+    ecs_system_desc_t static_build = {
+        .name = "BuildStaticShadowBounds",
+        .callback = build_static_shadow_bounds,
+        .phase = EcsPreRender,
+        .after = { begin_system },
+        .main_thread_only = true,
+    };
+    const ecs_system_id_t static_build_system = ecs_system_init(&static_build);
     ecs_system_desc_t build = {
         .name = "BuildShadowBounds",
         .query = {
@@ -349,11 +607,12 @@ void register_shadow_bounds(ecs_system_id_t camera_system) {
                 { .id = ecs::detail::ecs_cpp_component_id<GlobalPosition3d>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<GlobalScale3d>(), .access = EcsIn },
                 { .id = ecs::detail::ecs_cpp_component_id<Cuboid>(), .access = EcsIn },
+                { .id = ecs::detail::ecs_cpp_component_id<Static>(), .access = EcsNot },
             },
         },
         .callback = build_shadow_bounds,
         .phase = EcsPreRender,
-        .after = { begin_system },
+        .after = { static_build_system },
         .main_thread_only = true,
     };
     const ecs_system_id_t build_system = ecs_system_init(&build);
@@ -497,7 +756,8 @@ void rendering::import() {
                 );
             });
 
-    register_shadow_bounds(update_camera);
+    const ecs_system_id_t static_cache_system = register_static_cache(update_camera);
+    register_shadow_bounds(static_cache_system);
     register_render_cuboids();
 
     ecs::system("EndRendering").phase(EcsPostRender).immediate().each([] { sigpu_end_frame(); });

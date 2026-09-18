@@ -160,6 +160,26 @@ bool sigpu_shadow_visible(sigpu_vec3_t center, float radius) {
            position.z + radius >= g_sigpu.light_near && position.z - radius <= g_sigpu.light_far;
 }
 
+void sigpu_static_shadow_bounds_extend(void) {
+    for (Uint32 index = 0; index < g_sigpu.static_chunk_count; index++) {
+        const sigpu_static_chunk_t *chunk = &g_sigpu.static_chunks[index];
+        sigpu_shadow_bounds_extend(chunk->center, chunk->radius);
+    }
+}
+
+void sigpu_static_cull(float aspect) {
+    g_sigpu.static_shadow_visible_count = 0;
+
+    for (Uint32 index = 0; index < g_sigpu.static_chunk_count; index++) {
+        sigpu_static_chunk_t *chunk = &g_sigpu.static_chunks[index];
+        chunk->camera_visible = sigpu_camera_visible(chunk->center, chunk->radius, aspect);
+        chunk->shadow_visible =
+            g_sigpu.shadows_enabled && sigpu_shadow_visible(chunk->center, chunk->radius);
+        g_sigpu.static_shadow_visible_count += chunk->shadow_visible;
+        g_sigpu.any_bloom = g_sigpu.any_bloom || (chunk->camera_visible && chunk->bloom);
+    }
+}
+
 void sigpu_view_prepare(float aspect) {
     g_sigpu.view = sigpu_mat4_look_at_lh(
         g_sigpu.camera.position,

@@ -150,6 +150,95 @@ static void resize_rotated_instances(Uint32 capacity) {
     g_sigpu.rotated_capacity = capacity;
 }
 
+static SDL_GPUBuffer *create_static_buffer(Uint32 size) {
+    return SDL_CreateGPUBuffer(
+        g_sigpu.device,
+        &(SDL_GPUBufferCreateInfo){
+            .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
+            .size = size,
+        }
+    );
+}
+
+static void upload_static_buffer(
+    SDL_GPUCopyPass *copy,
+    SDL_GPUTransferBuffer *transfer,
+    SDL_GPUBuffer *buffer,
+    Uint32 offset,
+    Uint32 size
+) {
+    if (size == 0) {
+        return;
+    }
+    SDL_UploadToGPUBuffer(
+        copy,
+        &(SDL_GPUTransferBufferLocation){
+            .transfer_buffer = transfer,
+            .offset = offset,
+        },
+        &(SDL_GPUBufferRegion){ .buffer = buffer, .size = size },
+        false
+    );
+}
+
+static void *copy_static_data(const void *source, Uint32 count, Uint32 stride) {
+    if (count == 0) {
+        return NULL;
+    }
+    void *copy = SDL_malloc(count * stride);
+    memcpy(copy, source, count * stride);
+    return copy;
+}
+
+void sigpu_static_upload(const sigpu_static_upload_t *upload) {
+    const Uint32 axis_size = upload->axis_count * sizeof(sigpu_axis_instance_t);
+    const Uint32 rotated_size = upload->rotated_count * sizeof(sigpu_rotated_instance_t);
+    const Uint32 transfer_size = axis_size + rotated_size;
+
+    if (axis_size) {
+        g_sigpu.static_axis_buffer = create_static_buffer(axis_size);
+    }
+    if (rotated_size) {
+        g_sigpu.static_rotated_buffer = create_static_buffer(rotated_size);
+    }
+
+    if (transfer_size) {
+        SDL_GPUTransferBuffer *transfer = SDL_CreateGPUTransferBuffer(
+            g_sigpu.device,
+            &(SDL_GPUTransferBufferCreateInfo){
+                .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+                .size = transfer_size,
+            }
+        );
+        uint8_t *mapped = SDL_MapGPUTransferBuffer(g_sigpu.device, transfer, false);
+        if (axis_size) {
+            memcpy(mapped, upload->axis, axis_size);
+        }
+        if (rotated_size) {
+            memcpy(mapped + axis_size, upload->rotated, rotated_size);
+        }
+        SDL_UnmapGPUTransferBuffer(g_sigpu.device, transfer);
+
+        SDL_GPUCommandBuffer *command_buffer = SDL_AcquireGPUCommandBuffer(g_sigpu.device);
+        SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(command_buffer);
+        upload_static_buffer(copy, transfer, g_sigpu.static_axis_buffer, 0, axis_size);
+        upload_static_buffer(
+            copy,
+            transfer,
+            g_sigpu.static_rotated_buffer,
+            axis_size,
+            rotated_size
+        );
+        SDL_EndGPUCopyPass(copy);
+        SDL_SubmitGPUCommandBuffer(command_buffer);
+        SDL_ReleaseGPUTransferBuffer(g_sigpu.device, transfer);
+    }
+
+    g_sigpu.static_chunks =
+        copy_static_data(upload->chunks, upload->chunk_count, sizeof(sigpu_static_chunk_t));
+    g_sigpu.static_chunk_count = upload->chunk_count;
+}
+
 static SDL_GPUTexture *create_hdr_texture(
     Uint32 width,
     Uint32 height,
@@ -326,9 +415,16 @@ void sigpu_resources_destroy(void) {
     SDL_ReleaseGPUBuffer(g_sigpu.device, g_sigpu.index_buffer);
     SDL_ReleaseGPUBuffer(g_sigpu.device, g_sigpu.axis_buffer);
     SDL_ReleaseGPUBuffer(g_sigpu.device, g_sigpu.rotated_buffer);
+    if (g_sigpu.static_axis_buffer) {
+        SDL_ReleaseGPUBuffer(g_sigpu.device, g_sigpu.static_axis_buffer);
+    }
+    if (g_sigpu.static_rotated_buffer) {
+        SDL_ReleaseGPUBuffer(g_sigpu.device, g_sigpu.static_rotated_buffer);
+    }
     SDL_ReleaseGPUTransferBuffer(g_sigpu.device, g_sigpu.axis_transfer);
     SDL_ReleaseGPUTransferBuffer(g_sigpu.device, g_sigpu.rotated_transfer);
     release_frame_targets();
+    SDL_free(g_sigpu.static_chunks);
 }
 
 void sigpu_axis_instances_grow(void) {

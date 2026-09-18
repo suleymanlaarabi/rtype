@@ -122,8 +122,37 @@ static void draw_shared_batches(
     }
 }
 
+static void draw_static_chunks(
+    SDL_GPURenderPass *pass,
+    SDL_GPUGraphicsPipeline *axis_pipeline,
+    SDL_GPUGraphicsPipeline *rotated_pipeline,
+    bool shadow
+) {
+    for (Uint32 index = 0; index < g_sigpu.static_chunk_count; index++) {
+        const sigpu_static_chunk_t *chunk = &g_sigpu.static_chunks[index];
+        if (shadow ? !chunk->shadow_visible : !chunk->camera_visible) {
+            continue;
+        }
+
+        bind_and_draw(
+            pass,
+            axis_pipeline,
+            g_sigpu.static_axis_buffer,
+            chunk->axis_first * sizeof(sigpu_axis_instance_t),
+            chunk->axis_count
+        );
+        bind_and_draw(
+            pass,
+            rotated_pipeline,
+            g_sigpu.static_rotated_buffer,
+            chunk->rotated_first * sizeof(sigpu_rotated_instance_t),
+            chunk->rotated_count
+        );
+    }
+}
+
 static void draw_shadow_pass(void) {
-    if (!g_sigpu.shadows_enabled || no_instances()) {
+    if (!g_sigpu.shadows_enabled || (no_instances() && g_sigpu.static_shadow_visible_count == 0)) {
         return;
     }
 
@@ -145,6 +174,7 @@ static void draw_shadow_pass(void) {
         sizeof(g_sigpu.light_view_projection)
     );
     bind_mesh(pass);
+    draw_static_chunks(pass, g_sigpu.axis_shadow_pipeline, g_sigpu.rotated_shadow_pipeline, true);
     draw_shared_batches(
         pass,
         g_sigpu.shared_axis_shadow_pipeline,
@@ -250,6 +280,7 @@ static void draw_main_pass(void) {
     SDL_PushGPUFragmentUniformData(g_sigpu.command_buffer, 0, &lighting, sizeof(lighting));
     SDL_BindGPUFragmentSamplers(pass, 0, &shadow_binding, 1);
     bind_mesh(pass);
+    draw_static_chunks(pass, g_sigpu.axis_pipeline, g_sigpu.rotated_pipeline, false);
     draw_shared_batches(
         pass,
         g_sigpu.shared_axis_pipeline,
