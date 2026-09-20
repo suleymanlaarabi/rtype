@@ -17,7 +17,7 @@ struct DebugTransformGizmo {
 struct DebugTransformGizmoRoot {};
 
 struct DebugState {
-    bool visible = true;
+    bool visible = false;
     bool toggle_down = false;
 };
 

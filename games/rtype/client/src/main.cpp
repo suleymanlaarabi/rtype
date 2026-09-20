@@ -9,10 +9,11 @@
 #include <numbers>
 
 int main() {
-    ecs::init({ .target_fps = 120, .worker_threads = 4 });
+    ecs::init({ .target_fps = 30, .worker_threads = 4 });
 
     ecs::import<engine::core>();
     ecs::import<engine::rendering>();
+    ecs::set_resource(engine::Shadows{ .enabled = false });
 #ifndef NDEBUG
     ecs::import<engine::debug>();
 #endif
@@ -84,11 +85,8 @@ int main() {
                 ecs::entity::instantiate(wing).set(Position3d(-0.7, 0, 0))
             )
             .abstract();
-    ecs::entity player = ecs::entity::instantiate(spaceship).set(Position3d(0, 0, 0));
 
-#ifndef NDEBUG
-    player.add<engine::DebugTransform>();
-#endif
+    ecs::entity player = ecs::entity::instantiate(spaceship).set(Position3d(0, 0, 0));
 
     ecs::run();
 }
