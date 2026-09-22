@@ -2,7 +2,7 @@
 
 #ifndef NDEBUG
 
-#include "rendering.hpp"
+#include <sigpu.h>
 
 #include <siecs_spatial.h>
 

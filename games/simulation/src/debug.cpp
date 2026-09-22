@@ -2,7 +2,7 @@
 #include "resources.hpp"
 #include "simulation.hpp"
 
-#include "rendering.hpp"
+#include <sigpu.h>
 
 #include <siecs_spatial.h>
 
@@ -17,16 +17,16 @@ void register_debug(ecs_system_id_t damage_system) {
         .each([](const FreeCameraController &,
                  Position3d &position,
                  Rotation3d &rotation,
-                 ecs::res<const engine::Keyboard> keyboard,
+                 ecs::res<const Keyboard> keyboard,
                  ecs::res<const DeltaTime> delta) {
             constexpr float move_speed = 35.0f;
             constexpr float rotation_speed = 1.5f;
-            const float forward = static_cast<float>(keyboard->down(engine::Key::S)) -
-                                  static_cast<float>(keyboard->down(engine::Key::W));
-            const float strafe = static_cast<float>(keyboard->down(engine::Key::A)) -
-                                 static_cast<float>(keyboard->down(engine::Key::D));
-            const float vertical = static_cast<float>(keyboard->down(engine::Key::E)) -
-                                   static_cast<float>(keyboard->down(engine::Key::Q));
+            const float forward = static_cast<float>(keyboard->down(Key::S)) -
+                                  static_cast<float>(keyboard->down(Key::W));
+            const float strafe = static_cast<float>(keyboard->down(Key::A)) -
+                                 static_cast<float>(keyboard->down(Key::D));
+            const float vertical = static_cast<float>(keyboard->down(Key::E)) -
+                                   static_cast<float>(keyboard->down(Key::Q));
             const float yaw = rotation.yaw;
             const float sin_yaw = std::sin(yaw);
             const float cos_yaw = std::cos(yaw);
@@ -34,11 +34,11 @@ void register_debug(ecs_system_id_t damage_system) {
             position.x += (forward * sin_yaw + strafe * cos_yaw) * move_speed * delta->value;
             position.y += vertical * move_speed * delta->value;
             position.z += (forward * cos_yaw - strafe * sin_yaw) * move_speed * delta->value;
-            rotation.yaw += (static_cast<float>(keyboard->down(engine::Key::Right)) -
-                             static_cast<float>(keyboard->down(engine::Key::Left))) *
+            rotation.yaw += (static_cast<float>(keyboard->down(Key::Right)) -
+                             static_cast<float>(keyboard->down(Key::Left))) *
                             rotation_speed * delta->value;
-            rotation.pitch -= (static_cast<float>(keyboard->down(engine::Key::Down)) -
-                               static_cast<float>(keyboard->down(engine::Key::Up))) *
+            rotation.pitch -= (static_cast<float>(keyboard->down(Key::Down)) -
+                               static_cast<float>(keyboard->down(Key::Up))) *
                               rotation_speed * delta->value;
         });
 

@@ -12,5 +12,5 @@ target_include_directories(engine_debug
 
 target_link_libraries(engine_debug
     PUBLIC
-        engine::rendering
+        engine::siecs
 )

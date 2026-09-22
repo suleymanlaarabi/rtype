@@ -3,7 +3,7 @@
 #include "resources.hpp"
 #include "simulation.hpp"
 
-#include "rendering.hpp"
+#include <sigpu.h>
 
 #include <siecs_spatial.h>
 
@@ -83,7 +83,7 @@ void spawn_battle() {
                 std::numbers::pi_v<float>,
                 0.0f
             ),
-            engine::Camera(52.0f)
+            Camera(52.0f)
         );
 }
 

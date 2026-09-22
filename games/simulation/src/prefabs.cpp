@@ -2,7 +2,7 @@
 #include "components.hpp"
 #include "resources.hpp"
 
-#include "rendering.hpp"
+#include <sigpu.h>
 
 #include <siecs_spatial.h>
 
@@ -10,7 +10,7 @@ namespace simulation {
 
 namespace {
 
-ecs::entity create_fighter_prefab(engine::Color color) {
+ecs::entity create_fighter_prefab(Color color) {
     const ShipConfig ship_config{
         .max_speed = 14.0f,
         .acceleration = 20.0f,
@@ -34,19 +34,17 @@ ecs::entity create_fighter_prefab(engine::Color color) {
         .muzzle_z = 1.25f,
     };
 
-    const ecs::entity wing = ecs::entity::create()
-                                 .set(engine::Cuboid(0.65f, 0.08f, 1.3f), color)
-                                 .children(
-                                     ecs::entity::create().set(
-                                         Position3d(0.0f, 0.0f, 0.55f),
-                                         engine::Cuboid(0.22f, 0.08f, 0.3f),
-                                         engine::Color::yellow()
-                                     )
-                                 )
-                                 .abstract();
+    const ecs::entity wing =
+        ecs::entity::create()
+            .set(Cuboid(0.65f, 0.08f, 1.3f), color)
+            .children(
+                ecs::entity::create()
+                    .set(Position3d(0.0f, 0.0f, 0.55f), Cuboid(0.22f, 0.08f, 0.3f), Color::yellow())
+            )
+            .abstract();
 
     return ecs::entity::create()
-        .set(ship_config, weapon_config, engine::Cuboid(0.9f, 0.3f, 2.3f), color)
+        .set(ship_config, weapon_config, Cuboid(0.9f, 0.3f, 2.3f), color)
         .children(
             ecs::entity::instantiate(wing).set(Position3d(0.72f, 0.0f, 0.0f)),
             ecs::entity::instantiate(wing).set(Position3d(-0.72f, 0.0f, 0.0f))
@@ -54,23 +52,23 @@ ecs::entity create_fighter_prefab(engine::Color color) {
         .abstract();
 }
 
-ecs::entity create_projectile_prefab(engine::Color color) {
-    return ecs::entity::create().set(engine::Cuboid::splat(0.14f), color).abstract();
+ecs::entity create_projectile_prefab(Color color) {
+    return ecs::entity::create().set(Cuboid::splat(0.14f), color).abstract();
 }
 
 } // namespace
 
 FighterPrefabs create_fighter_prefabs() {
     return {
-        .blue = create_fighter_prefab(engine::Color::lblue()),
-        .red = create_fighter_prefab(engine::Color::red()),
+        .blue = create_fighter_prefab(Color::lblue()),
+        .red = create_fighter_prefab(Color::red()),
     };
 }
 
 void create_projectile_prefabs() {
     const ProjectilePrefabs prefabs{
-        .blue = create_projectile_prefab(engine::Color::lblue()).id(),
-        .red = create_projectile_prefab(engine::Color::red()).id(),
+        .blue = create_projectile_prefab(Color::lblue()).id(),
+        .red = create_projectile_prefab(Color::red()).id(),
     };
     ecs::set_resource(prefabs);
 }

@@ -1,6 +1,6 @@
 #pragma once
-#include "rendering.hpp"
 #include <siecs.h>
+#include <sigpu.h>
 
 namespace rtype {
 
@@ -9,13 +9,11 @@ struct Player {};
 struct CameraController {};
 
 struct Gun {
-    engine::Key key = engine::Key::Space;
+    Key key = Key::Space;
 };
 
 struct MoveInput {
-    using EngineKey = engine::Key;
-
-    reflected(EngineKey left; EngineKey right; EngineKey up; EngineKey down; float speed;);
+    reflected(uint8_t left; uint8_t right; uint8_t up; uint8_t down; float speed;);
 };
 
 struct gameplay {

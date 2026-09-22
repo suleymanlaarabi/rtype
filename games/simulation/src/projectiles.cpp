@@ -3,8 +3,6 @@
 #include "simulation.hpp"
 #include "spatial_grid.hpp"
 
-#include "rendering.hpp"
-
 #include <algorithm>
 #include <cmath>
 

@@ -5,8 +5,6 @@
 #include "spatial_grid.hpp"
 
 #include "core.hpp"
-#include "rendering.hpp"
-
 #include <algorithm>
 
 namespace simulation {

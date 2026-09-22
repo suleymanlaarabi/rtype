@@ -3,8 +3,6 @@
 #include "simulation.hpp"
 #include "spatial_grid.hpp"
 
-#include "rendering.hpp"
-
 namespace simulation {
 
 ecs_system_id_t register_spatial_grid(ecs_system_id_t previous_position) {

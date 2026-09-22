@@ -20,7 +20,6 @@ include(CTest)
 
 add_subdirectory(engine/siecs)
 add_subdirectory(engine/core)
-add_subdirectory(engine/rendering)
 add_subdirectory(engine/debug)
 add_subdirectory(engine/network)
 add_subdirectory(games/rtype)

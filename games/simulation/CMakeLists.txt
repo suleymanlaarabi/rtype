@@ -21,7 +21,6 @@ target_link_libraries(simulation
     PRIVATE
         engine::core
         engine::debug
-        engine::rendering
 )
 
 if(UNIX AND NOT APPLE)

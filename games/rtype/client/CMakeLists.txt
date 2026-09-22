@@ -12,7 +12,6 @@ target_link_libraries(rtype_client
     PRIVATE
         engine::core
         engine::debug
-        engine::rendering
         engine::network
 )
 
