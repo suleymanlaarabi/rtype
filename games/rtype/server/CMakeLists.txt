@@ -1,5 +1,11 @@
 add_executable(rtype_server
     src/main.cpp
+    src/session.cpp
+)
+
+target_include_directories(rtype_server
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(rtype_server
