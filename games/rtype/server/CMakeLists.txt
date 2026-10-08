@@ -20,3 +20,27 @@ if(UNIX AND NOT APPLE)
 endif()
 
 add_test(NAME rtype_server_starts COMMAND rtype_server)
+
+if(BUILD_TESTING)
+    add_executable(rtype_server_session_test
+        src/session.cpp
+        test/session_test.cpp
+    )
+
+    target_include_directories(rtype_server_session_test
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_link_libraries(rtype_server_session_test
+        PRIVATE
+            engine::siecs
+            engine::network
+    )
+
+    if(UNIX AND NOT APPLE)
+        target_link_options(rtype_server_session_test PRIVATE -Wl,--export-dynamic)
+    endif()
+
+    add_test(NAME rtype_server_session COMMAND rtype_server_session_test)
+endif()
